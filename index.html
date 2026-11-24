@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>為你而唱 · 把你們的故事寫成一首歌</title>
+<meta name="description" content="回答幾個問題，AI 為你寫詞、作曲、演唱，做出一首只屬於他／她的歌。">
+<meta name="theme-color" content="#2a1840">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@600;900&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#/"><img src="icons/icon.svg" alt=""><span>為你而唱</span></a>
+  <nav>
+    <a href="#/songs" data-nav="songs">我的歌曲</a>
+    <a href="#/settings" data-nav="settings" aria-label="設定">⚙︎ 設定</a>
+    <a class="btn btn-sm" href="#/create">開始製作</a>
+  </nav>
+</header>
+<main id="view" tabindex="-1"></main>
+<footer class="foot">
+  <p>為你而唱 · 歌曲由你設定的 AI 音樂服務產生，請遵守該服務的使用條款。</p>
+</footer>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
