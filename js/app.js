@@ -1,7 +1,8 @@
 import {
   STYLES, OCCASIONS, RELATIONS, LENGTHS, styleByKey, occasionByKey,
-  generateLyrics, startSong, pollSong, STATUS_TEXT, testMusicKey, testClaudeKey,
+  generateLyrics, startSong, pollSong, STATUS_TEXT, testMusicKey, testClaudeKey, runAceStep, PROVIDERS,
 } from "./engine.js";
+import { synthSong } from "./synth.js";
 import {
   getSettings, saveSettings, getDraft, saveDraft, uid, listSongs, getSong, putSong, deleteSong,
   putBlob, getBlob, exportAll, importAll,
@@ -53,7 +54,7 @@ function renderHome() {
         <a class="btn" href="#/create">🎵 立即製作我的歌</a>
         <a class="btn btn-ghost" href="#how">看看怎麼做</a>
       </div>
-      <div class="badges"><span>⏱ 約 5 分鐘填寫</span><span>🎙 每次產生 2 個版本</span><span>🔁 不滿意可修改重做</span></div>
+      <div class="badges"><span>🆓 有免費模式</span><span>⏱ 約 5 分鐘填寫</span><span>🎙 每次產生 2 個版本</span><span>🔁 不滿意可修改重做</span></div>
     </div>
     <div class="vinyl" aria-hidden="true">
       <div class="disc"></div>
@@ -90,7 +91,8 @@ function renderHome() {
     <header><h2>常見問題</h2></header>
     ${[
       ["歌詞需要我自己寫嗎？", "不用。你只要回答問題，AI 會幫你寫好完整歌詞；寫好後你可以逐字修改，或告訴 AI 哪裡要改讓它重寫。"],
-      ["歌曲是怎麼做出來的？", "歌詞由 Claude 撰寫（未設定金鑰時使用內建範本），歌曲由你在「設定」中填入的 AI 音樂服務產生，包含旋律、編曲與 AI 歌聲。"],
+      ["需要付費嗎？", "不用。預設使用免費的開源 AI 模型（Hugging Face 上的 ACE-Step）產生有歌聲的歌，每天有免費額度；也可以選「本機合成」做不限次數的純音樂。想要更好的音質，可以在設定改用付費的 sunoapi.org。"],
+      ["歌曲是怎麼做出來的？", "歌詞由 Claude 撰寫（未設定金鑰時使用內建範本），歌曲由你在「設定」選擇的方式產生，包含旋律、編曲與 AI 歌聲。"],
       ["需要多久？", "填寫約 5 分鐘；送出後 AI 音樂服務通常 1–5 分鐘內完成，期間可以離開頁面，完成後回到「我的歌曲」就能聽。"],
       ["不滿意可以修改嗎？", "可以。在歌曲頁按「修改重做」，調整歌詞或曲風就能產生新版本，舊版本也會保留。每次產生會使用 AI 音樂服務的點數。"],
       ["歌曲會存在哪裡？", "歌曲資料存在你自己的瀏覽器（電腦版存在本機）。AI 音樂服務的檔案連結大約保留 14 天，建議完成後下載 MP3 保存。"],
@@ -221,8 +223,6 @@ function renderCreate(occArg) {
     making = true;
     const status = $("#makeStatus");
     try {
-      const s = getSettings();
-      if (!s.musicKey) throw new Error("尚未設定 AI 音樂 API 金鑰。請先到「設定」填寫，再回來按「重試」。");
       const id = uid();
       const song = {
         id, createdAt: Date.now(),
@@ -236,11 +236,10 @@ function renderCreate(occArg) {
       const v = { n: 1, title: d.title, lyrics: d.lyrics, styleTags: d.styleTags, vocal: d.vocal, length: d.length, status: "SUBMITTING", tracks: [], createdAt: Date.now() };
       song.versions.push(v);
       status.textContent = "正在送出給 AI 音樂服務…";
-      v.taskId = await startSong(v);
-      v.status = "PENDING";
+      await submitVersion(v);
       await putSong(song);
       saveDraft(null);
-      kickPoller();
+      launchVersion(song, v);
       location.hash = "#/song/" + id;
     } catch (e) {
       console.error(e);
@@ -331,6 +330,99 @@ function stepMake() {
   return `<div class="making"><h2>正在送出你的歌</h2><div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
     <p id="makeStatus" class="muted">準備中…</p>
     <div class="row" style="justify-content:center"><button class="btn hidden" id="retry">重試</button><a class="btn btn-ghost btn-sm" href="#/settings">前往設定</a></div></div>`;
+}
+
+// ───────────────── 產生方式分派 ─────────────────
+// 付費 (suno) 送出後拿 taskId 背景輪詢；免費 (hf / local) 在這個頁面裡直接執行
+async function submitVersion(v) {
+  const s = getSettings();
+  v.provider = s.provider || "hf";
+  v.vocalGender = v.vocal;
+  if (v.provider === "suno") {
+    if (!s.musicKey) throw new Error("你選的是付費的 sunoapi.org，但還沒填 API 金鑰。請到「設定」填寫，或改選免費的產生方式。");
+    v.taskId = await startSong(v);
+    v.status = "PENDING";
+  } else {
+    v.status = "PENDING";
+    v.progress = "準備中…";
+  }
+}
+function launchVersion(song, v) {
+  if (v.provider === "suno") kickPoller();
+  else runFreeJob(song.id, v.n);
+}
+
+const activeJobs = new Set();
+async function runFreeJob(songId, n) {
+  const key = songId + "#" + n;
+  if (activeJobs.has(key)) return;
+  activeJobs.add(key);
+  let lastProg = "";
+  const update = async (patch) => {
+    const s = await getSong(songId);
+    if (!s) return null;
+    const vv = s.versions.find((x) => x.n === n);
+    if (!vv) return null;
+    Object.assign(vv, patch);
+    await putSong(s);
+    return { s, vv };
+  };
+  try {
+    const s0 = await getSong(songId);
+    const v = s0.versions.find((x) => x.n === n);
+    let outs;
+    if (v.provider === "hf") {
+      outs = await runAceStep(v, (txt) => { if (txt !== lastProg) { lastProg = txt; update({ progress: txt }); } });
+    } else {
+      await update({ progress: "正在合成版本 A…（每個版本約 20–60 秒）", status: "TEXT_SUCCESS" });
+      outs = [];
+      for (const variant of [0, 1]) {
+        const r = await synthSong({ style: s0.order.style, lyrics: v.lyrics, seconds: Number(v.length) || 120, variant, title: v.title });
+        outs.push({ blob: r.blob, duration: r.duration });
+        if (variant === 0) await update({ progress: "版本 A 完成，正在合成版本 B…", status: "FIRST_SUCCESS" });
+      }
+    }
+    const tracks = [];
+    for (let i = 0; i < outs.length; i++) {
+      const o = outs[i];
+      const tid = `${v.provider}-${n}-${i}`;
+      const blobKey = `${songId}:${tid}`;
+      await putBlob(blobKey, o.blob);
+      let duration = o.duration || 0;
+      if (!duration) duration = await blobDuration(o.blob);
+      tracks.push({ id: tid, title: v.title, audioUrl: "", tempUrl: o.url || "", streamUrl: "", imageUrl: "", duration, blobKey,
+        ext: /wav/.test(o.blob.type) ? "wav" : "mp3" });
+    }
+    const res = await update({ tracks, status: "SUCCESS", progress: "" });
+    if (res) notifyDone(res.s);
+  } catch (e) {
+    console.error(e);
+    await update({ status: "FAILED", error: e.message || String(e), progress: "" });
+  } finally {
+    activeJobs.delete(key);
+  }
+}
+function blobDuration(blob) {
+  return new Promise((res) => {
+    const a = new Audio();
+    const u = URL.createObjectURL(blob);
+    a.preload = "metadata";
+    a.onloadedmetadata = () => { res(isFinite(a.duration) ? a.duration : 0); URL.revokeObjectURL(u); };
+    a.onerror = () => { res(0); URL.revokeObjectURL(u); };
+    a.src = u;
+  });
+}
+// 重新整理或關閉頁面會中斷免費模式的製作：開啟時把這些標成失敗，讓使用者重試
+async function recoverInterrupted() {
+  for (const song of await listSongs()) {
+    let ch = false;
+    for (const v of song.versions) {
+      if (v.provider && v.provider !== "suno" && RUNNING.has(v.status) && !activeJobs.has(song.id + "#" + v.n)) {
+        v.status = "FAILED"; v.error = "製作中斷（頁面被關閉或重新整理），請按「用同樣歌詞重試」。"; v.progress = ""; ch = true;
+      }
+    }
+    if (ch) await putSong(song);
+  }
 }
 
 // ───────────────── 背景輪詢 ─────────────────
@@ -439,7 +531,11 @@ async function renderSong(id) {
     const cover = v.tracks.find((t) => t.imageUrl)?.imageUrl;
     const verBar = song.versions.length > 1 ? `<div class="versions" style="margin-top:12px">${song.versions.map((x, i) => `<button data-ver="${i}" class="${i === song.current ? "on" : ""}">第 ${x.n} 版 ${badge(x)}</button>`).join("")}</div>` : "";
     let body = "";
-    if (RUNNING.has(v.status) && !v.tracks.some((t) => t.audioUrl || t.streamUrl)) {
+    if (RUNNING.has(v.status) && v.provider && v.provider !== "suno") {
+      body = `<div class="card making"><h2>${v.provider === "local" ? "正在合成你的音樂" : "AI 正在為你作曲與演唱"}</h2><div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
+        <p class="muted">${esc(v.progress || "處理中…")}</p>
+        <p class="note" style="margin-top:14px">⚠️ 免費模式在這個頁面裡製作，<b>請保持頁面開啟</b>，完成前不要關閉或重新整理。</p></div>`;
+    } else if (RUNNING.has(v.status) && !v.tracks.some((t) => t.audioUrl || t.streamUrl)) {
       const stages = ["PENDING", "TEXT_SUCCESS", "FIRST_SUCCESS", "SUCCESS"];
       const idx = stages.indexOf(v.status);
       body = `<div class="card making"><h2>AI 正在為你作曲與演唱</h2><div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
@@ -454,7 +550,7 @@ async function renderSong(id) {
         <div class="track" data-ti="${i}"><button class="play" aria-label="播放">▶</button>
           <div class="meta"><b>版本 ${String.fromCharCode(65 + i)}</b> <span class="tiny">${t.duration ? fmtTime(t.duration) : ""}${t.blobKey ? " · 已存本機" : ""}${!t.audioUrl && t.streamUrl ? " · 串流預覽（收尾中）" : ""}</span>
             <div class="bar"><b></b></div><div class="t"><span class="cur">0:00</span> / <span class="dur">${t.duration ? fmtTime(t.duration) : "--:--"}</span></div></div>
-          <button class="btn btn-ghost btn-sm dl" title="下載 MP3" ${t.audioUrl || t.blobKey ? "" : "disabled"}>⬇ MP3</button>
+          <button class="btn btn-ghost btn-sm dl" title="下載音檔" ${t.audioUrl || t.blobKey ? "" : "disabled"}>⬇ ${(t.ext || "mp3").toUpperCase()}</button>
         </div>`).join("")}</div>
         ${RUNNING.has(v.status) ? `<p class="tiny">⏳ ${STATUS_TEXT[v.status] || ""}</p>` : ""}
         <div class="row" style="margin:6px 0 10px">
@@ -470,6 +566,7 @@ async function renderSong(id) {
           <p class="tiny">${oc.emoji} ${oc.name} · ${st.name}${o.relation ? ` · 給${esc(o.relation)}` : ""}</p>
           <h1 style="font-size:clamp(28px,5vw,44px)">${esc(v.title)}</h1>
           <p class="muted">專為 <b>${esc(o.recipient)}</b> 打造${o.sender ? `，來自 ${esc(o.sender)}` : ""}</p>
+          ${v.provider ? `<p class="tiny">產生方式：${esc(PROVIDERS[v.provider]?.short || v.provider)}${v.provider === "local" ? "（純音樂，無歌聲）" : ""}</p>` : ""}
           ${verBar}
         </div>
       </div>
@@ -551,16 +648,13 @@ function lyricsHtml(text) {
 }
 
 async function newVersion(song, data) {
-  const s = getSettings();
-  if (!s.musicKey) { toast("請先到設定填寫 AI 音樂 API 金鑰", true); return; }
-  const v = { n: song.versions.length + 1, ...data, status: "SUBMITTING", tracks: [], createdAt: Date.now() };
+  const v = { n: Math.max(0, ...song.versions.map((x) => x.n)) + 1, ...data, status: "SUBMITTING", tracks: [], createdAt: Date.now() };
   try {
-    v.taskId = await startSong(v);
-    v.status = "PENDING";
+    await submitVersion(v);
     song.versions.push(v);
     song.current = song.versions.length - 1;
     await putSong(song);
-    kickPoller();
+    launchVersion(song, v);
     toast("已送出新版本，AI 製作中…");
   } catch (e) {
     toast(e.message || String(e), true);
@@ -608,7 +702,7 @@ function openEdit(song, v) {
 const safeName = (s) => String(s || "song").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 60);
 
 async function downloadTrack(song, v, t, i) {
-  const name = `${safeName(v.title)}_${String.fromCharCode(65 + i)}.mp3`;
+  const name = `${safeName(v.title)}_${String.fromCharCode(65 + i)}.${t.ext || "mp3"}`;
   if (isDesktop()) {
     try {
       let r;
@@ -645,7 +739,7 @@ async function shareSong(song, v) {
   const t = v.tracks[0];
   try {
     const blob = t && t.blobKey ? await getBlob(t.blobKey) : null;
-    const file = blob ? new File([blob], safeName(v.title) + ".mp3", { type: blob.type || "audio/mpeg" }) : null;
+    const file = blob ? new File([blob], safeName(v.title) + "." + (t.ext || "mp3"), { type: blob.type || "audio/mpeg" }) : null;
     if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file], title: v.title, text: `一首專為${song.order.recipient}寫的歌 🎵` });
     } else {
@@ -737,7 +831,26 @@ function renderSettings() {
   view.innerHTML = `<div class="settings">
     <h2>設定</h2>
     <div class="card">
-      <h3>🎵 AI 音樂服務（必填）</h3>
+      <h3>🎼 歌曲產生方式</h3>
+      <div class="provs" id="provs">
+        ${[
+          ["hf", "🆓 免費 · AI 歌聲（Hugging Face）", "用開源 ACE-Step 模型產生有中文歌聲的歌。免費，但每天有 GPU 額度限制，填入免費的 Hugging Face token 額度更多。"],
+          ["local", "🆓 免費 · 本機合成純音樂", "在你的裝置上直接合成伴奏音樂，沒有歌聲。不用帳號、不限次數、離線也能用。"],
+          ["suno", "💎 付費 · sunoapi.org", "品質最好、最像真人演唱，需要儲值點數。"],
+        ].map(([k, t, d]) => `<label class="prov ${s.provider === k ? "on" : ""}"><input type="radio" name="prov" value="${k}" ${s.provider === k ? "checked" : ""}><b>${t}</b><span class="small muted">${d}</span></label>`).join("")}
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px" data-for="hf">
+      <h3>🤗 Hugging Face（免費 AI 歌聲）</h3>
+      <p class="muted small">不填也能試，但未登入的免費額度通常不夠做一首歌。到 <a href="https://huggingface.co/join" target="_blank" rel="noopener">huggingface.co</a> 免費註冊，再到 <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener">Settings › Access Tokens</a> 建立一個「Read」權限的 token 貼在這裡。</p>
+      <div class="kv"><label for="s-hf">Hugging Face token（免費）</label><input id="s-hf" type="password" autocomplete="off" value="${esc(s.hfToken)}" placeholder="hf_…"></div>
+      <details class="faq"><summary>進階</summary>
+        <div class="kv"><label for="s-hfs">Space 名稱</label><input id="s-hfs" type="text" value="${esc(s.hfSpace)}"></div>
+      </details>
+      <p class="tiny">免費額度用完時會顯示多久後恢復，期間可以改用「本機合成」。製作時請保持頁面開啟。</p>
+    </div>
+    <div class="card" style="margin-top:16px" data-for="suno">
+      <h3>🎵 sunoapi.org（付費）</h3>
       <p class="muted small">使用 sunoapi.org 相容的 API 產生有歌聲的歌曲。到 <a href="https://sunoapi.org" target="_blank" rel="noopener">sunoapi.org</a> 註冊並取得 API Key，每首歌會扣該服務的點數。</p>
       <div class="kv"><label for="s-mk">API 金鑰</label><input id="s-mk" type="password" autocomplete="off" value="${esc(s.musicKey)}" placeholder="貼上 API Key"></div>
       <div class="kv"><label for="s-mm">模型</label><select id="s-mm">${["V6", "V6_MINI", "V6_WILD", "V5_5", "V5", "V4_5PLUS", "V4_5"].map((m) => `<option ${m === s.musicModel ? "selected" : ""}>${m}</option>`).join("")}</select></div>
@@ -766,7 +879,16 @@ function renderSettings() {
     </div>
     <div class="row" style="margin-top:18px"><button class="btn" id="saveS">儲存設定</button></div>
   </div>`;
+  const showProv = () => {
+    const p = $("input[name=prov]:checked").value;
+    $$(".prov").forEach((l) => l.classList.toggle("on", l.querySelector("input").checked));
+    $$("[data-for]").forEach((c) => c.classList.toggle("hidden", c.dataset.for !== p));
+  };
+  $$("input[name=prov]").forEach((r) => r.addEventListener("change", () => { showProv(); saveSettings({ provider: r.value }); toast("已切換為：" + PROVIDERS[r.value].name); }));
+  showProv();
   const collect = () => ({
+    provider: $("input[name=prov]:checked").value,
+    hfToken: $("#s-hf").value.trim(), hfSpace: $("#s-hfs").value.trim() || "ACE-Step/Ace-Step-v1.5",
     musicKey: $("#s-mk").value.trim(), musicModel: $("#s-mm").value, musicBase: $("#s-mb").value.trim() || "https://api.sunoapi.org",
     callbackUrl: $("#s-cb").value.trim(), negativeTags: $("#s-neg").value.trim(),
     claudeKey: $("#s-ck").value.trim(), claudeModel: $("#s-cm").value.trim() || "claude-opus-5-5", claudeBase: $("#s-cbase").value.trim(),
@@ -785,6 +907,6 @@ function renderSettings() {
 
 // ───────────────── 啟動 ─────────────────
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
-route();
-kickPoller();
+recoverInterrupted().catch(() => {}).finally(() => { route(); kickPoller(); });
+window.addEventListener("beforeunload", (e) => { if (activeJobs.size) { e.preventDefault(); e.returnValue = ""; } });
 window.SFY = { listSongs, getSong, getSettings, saveSettings, pollAll };

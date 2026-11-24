@@ -195,7 +195,87 @@ export function templateLyrics(o) {
   return { title: `給${n}的歌`, lyrics, style: st.tags + vocal, source: "template", occasion: oc.key };
 }
 
-// ───────────────────────── 歌曲 (AI 音樂 API) ─────────────────────────
+// ───────────────────────── 免費：Hugging Face ACE-Step ─────────────────────────
+
+const GRADIO_URL = "https://cdn.jsdelivr.net/npm/@gradio/client@2.7.2/+esm";
+export const PROVIDERS = {
+  hf: { name: "免費 · Hugging Face ACE-Step", short: "ACE-Step（免費）" },
+  local: { name: "免費 · 本機合成純音樂", short: "本機合成（免費）" },
+  suno: { name: "付費 · sunoapi.org", short: "sunoapi（付費）" },
+};
+
+function hfError(msg) {
+  const m = String(msg || "");
+  if (/quota/i.test(m)) {
+    const wait = m.match(/Try again in ([\d:]+)/);
+    return "Hugging Face 免費 GPU 額度用完了" + (wait ? `（約 ${wait[1]} 後恢復）` : "") +
+      "。到「設定」填入免費的 Hugging Face token 可取得更多額度，或改用「本機合成」。";
+  }
+  if (/sleep|paused|building|not running/i.test(m)) return "免費服務目前在休眠或維護中，請稍後再試。";
+  if (/token|unauthor|401/i.test(m)) return "Hugging Face token 無效，請到設定檢查。";
+  return "免費 AI 服務錯誤：" + (m || "未知錯誤（可能是服務忙碌，請稍後再試）");
+}
+
+// 呼叫 ACE-Step v1.5 Space。onStatus(text) 回報進度；回傳 [{blob, url, duration}]
+export async function runAceStep(v, onStatus) {
+  const s = getSettings();
+  const { Client } = await import(/* @vite-ignore */ GRADIO_URL);
+  onStatus && onStatus("正在連線免費 AI 作曲服務…");
+  let app;
+  try {
+    app = await Client.connect(s.hfSpace || "ACE-Step/Ace-Step-v1.5", {
+      events: ["data", "status"],
+      ...(s.hfToken ? { hf_token: s.hfToken } : {}),
+    });
+  } catch (e) {
+    throw new Error(hfError(e && (e.message || e)));
+  }
+  const lyrics = String(v.lyrics || "").replace(/^[ \t]*\[(.+?)\][ \t]*$/gm, (_, t) => "[" + t.toLowerCase().replace(/\s*\d+$/, "") + "]");
+  const params = {
+    simple_query_input: "",
+    param_4: (v.styleTags || "").slice(0, 500),
+    param_5: lyrics.slice(0, 4000),
+    param_9: "zh",
+    param_14: null,
+    param_15: Math.min(Number(v.length) || 120, 240),
+    param_16: 2,
+    param_17: null,
+    param_18: "",
+    param_30: "mp3",
+    param_47: null,
+  };
+  const job = app.submit("/generation_wrapper", params);
+  let result = null;
+  for await (const m of job) {
+    if (m.type === "status") {
+      if (m.stage === "error") throw new Error(hfError(m.message || m.title));
+      if (m.stage === "pending") {
+        if (m.position > 0) onStatus && onStatus(`排隊中：前面還有 ${m.position} 人${m.eta ? `，約 ${Math.ceil(m.eta)} 秒` : ""}`);
+        else onStatus && onStatus("AI 正在作曲、編曲與演唱…（約 1–3 分鐘）");
+      }
+      if (m.progress_data && m.progress_data.length) {
+        const p = m.progress_data[0];
+        if (p && p.length) onStatus && onStatus(`AI 製作中… ${Math.round((p.index / p.length) * 100)}%`);
+      }
+      if (m.stage === "complete" && result) break;
+    }
+    if (m.type === "data") { result = m.data; break; }
+  }
+  if (!result) throw new Error(hfError("沒有收到結果"));
+  const files = result.slice(0, 2).filter((f) => f && (f.url || f.path));
+  if (!files.length) throw new Error(hfError(typeof result[10] === "string" ? result[10] : "沒有產生音檔"));
+  onStatus && onStatus("下載音檔中…");
+  const out = [];
+  for (const f of files) {
+    const url = f.url || "";
+    const r = await fetch(url, s.hfToken ? { headers: { Authorization: "Bearer " + s.hfToken } } : undefined);
+    if (!r.ok) throw new Error(hfError(`下載音檔失敗（${r.status}）`));
+    out.push({ blob: await r.blob(), url });
+  }
+  return out;
+}
+
+// ───────────────────────── 付費：sunoapi.org ─────────────────────────
 
 function musicBase() {
   const s = getSettings();

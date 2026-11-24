@@ -133,6 +133,10 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--gold);outline-of
 .empty{text-align:center;padding:60px 10px;color:var(--ink2)}
 
 .settings{max-width:720px;margin:28px auto}
+.provs{display:grid;gap:10px}
+.prov{display:flex;flex-direction:column;gap:2px;padding:14px 16px 14px 44px;border:1px solid var(--line);border-radius:14px;background:#1a0f2c;cursor:pointer;position:relative}
+.prov input{position:absolute;left:16px;top:17px;accent-color:#ffc46b;width:18px;height:18px}
+.prov.on{border-color:var(--gold);background:rgba(255,196,107,.1)}
 .settings h3{margin-top:8px}
 .kv{display:grid;grid-template-columns:1fr;gap:4px;margin-bottom:16px}
 

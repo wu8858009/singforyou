@@ -2,6 +2,9 @@
 
 const SKEY = "sfy.settings.v1";
 const DEFAULTS = {
+  provider: "hf",
+  hfToken: "",
+  hfSpace: "ACE-Step/Ace-Step-v1.5",
   musicKey: "",
   musicBase: "https://api.sunoapi.org",
   musicModel: "V6",
@@ -15,7 +18,10 @@ const DEFAULTS = {
 
 export function getSettings() {
   try {
-    return { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(SKEY)) || {}) };
+    const saved = JSON.parse(localStorage.getItem(SKEY)) || {};
+    const s = { ...DEFAULTS, ...saved };
+    if (!saved.provider && saved.musicKey) s.provider = "suno"; // 舊版已填付費金鑰的使用者
+    return s;
   } catch {
     return { ...DEFAULTS };
   }
