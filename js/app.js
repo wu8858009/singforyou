@@ -1,6 +1,7 @@
 import {
   STYLES, OCCASIONS, RELATIONS, LENGTHS, styleByKey, occasionByKey,
   generateLyrics, startSong, pollSong, STATUS_TEXT, testMusicKey, testClaudeKey, runAceStep, PROVIDERS,
+  startAce, pollAce, aceStatus, aceBase,
 } from "./engine.js";
 import { synthSong } from "./synth.js";
 import {
@@ -342,13 +343,17 @@ async function submitVersion(v) {
     if (!s.musicKey) throw new Error("你選的是付費的 sunoapi.org，但還沒填 API 金鑰。請到「設定」填寫，或改選免費的產生方式。");
     v.taskId = await startSong(v);
     v.status = "PENDING";
+  } else if (v.provider === "ace") {
+    v.taskId = await startAce(v);
+    v.status = "PENDING";
+    v.progress = "本機 AI 排程中…";
   } else {
     v.status = "PENDING";
     v.progress = "準備中…";
   }
 }
 function launchVersion(song, v) {
-  if (v.provider === "suno") kickPoller();
+  if (v.provider === "suno" || v.provider === "ace") kickPoller();
   else runFreeJob(song.id, v.n);
 }
 
@@ -417,7 +422,7 @@ async function recoverInterrupted() {
   for (const song of await listSongs()) {
     let ch = false;
     for (const v of song.versions) {
-      if (v.provider && v.provider !== "suno" && RUNNING.has(v.status) && !activeJobs.has(song.id + "#" + v.n)) {
+      if (v.provider && v.provider !== "suno" && v.provider !== "ace" && RUNNING.has(v.status) && !activeJobs.has(song.id + "#" + v.n)) {
         v.status = "FAILED"; v.error = "製作中斷（頁面被關閉或重新整理），請按「用同樣歌詞重試」。"; v.progress = ""; ch = true;
       }
     }
@@ -444,6 +449,7 @@ async function pollAll() {
       for (const v of song.versions) {
         if (!RUNNING.has(v.status) || !v.taskId) continue;
         any = true;
+        if (v.provider === "ace") { await pollAceVersion(song, v); continue; }
         try {
           const r = await pollSong(v.taskId);
           let changed = r.status !== v.status;
@@ -466,6 +472,40 @@ async function pollAll() {
   } catch (e) { console.error(e); }
   polling = false;
   if (any) pollTimer = setTimeout(pollAll, 8000);
+}
+
+async function pollAceVersion(song, v) {
+  try {
+    const r = await pollAce(v.taskId);
+    v.pollErrors = 0;
+    if (r.failed) { v.status = "FAILED"; v.error = r.failed; v.progress = ""; await putSong(song); return; }
+    if (!r.done) {
+      const el = Math.round((Date.now() - v.createdAt) / 1000);
+      if (el > 45 * 60) { v.status = "FAILED"; v.error = "本機 AI 超過 45 分鐘沒有完成（可能電腦版被關閉過），請按重試。"; v.progress = ""; await putSong(song); return; }
+      const txt = r.progress || `本機 AI 作曲演唱中…（已經過 ${Math.floor(el / 60)} 分 ${el % 60} 秒）`;
+      if (txt !== v.progress) { v.progress = txt; await putSong(song); }
+      return;
+    }
+    // 完成：把音檔存進本機，播放和下載都不再依賴本機 AI 伺服器
+    const tracks = [];
+    for (const t of r.tracks) {
+      const res = await fetch(t.audioUrl);
+      if (!res.ok) throw new Error("下載音檔失敗（" + res.status + "）");
+      const blob = await res.blob();
+      const blobKey = `${song.id}:${t.id}`;
+      await putBlob(blobKey, blob);
+      tracks.push({ ...t, title: v.title, audioUrl: "", streamUrl: "", imageUrl: "", blobKey, ext: "mp3",
+        duration: t.duration || (await blobDuration(blob)) });
+    }
+    v.tracks = tracks; v.status = "SUCCESS"; v.progress = "";
+    await putSong(song);
+    notifyDone(song);
+  } catch (e) {
+    v.pollErrors = (v.pollErrors || 0) + 1;
+    v.progress = "暫時連不到本機 AI，持續重試中…（" + e.message + "）";
+    if (v.pollErrors > 60) { v.status = "FAILED"; v.error = e.message; v.progress = ""; }
+    await putSong(song);
+  }
 }
 
 async function cacheAudio(song, v) {
@@ -534,7 +574,9 @@ async function renderSong(id) {
     if (RUNNING.has(v.status) && v.provider && v.provider !== "suno") {
       body = `<div class="card making"><h2>${v.provider === "local" ? "正在合成你的音樂" : "AI 正在為你作曲與演唱"}</h2><div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
         <p class="muted">${esc(v.progress || "處理中…")}</p>
-        <p class="note" style="margin-top:14px">⚠️ 免費模式在這個頁面裡製作，<b>請保持頁面開啟</b>，完成前不要關閉或重新整理。</p></div>`;
+        ${v.provider === "ace"
+          ? `<p class="tiny" style="margin-top:14px">本機 AI 在你的電腦上製作，第一次使用要先載入模型，會比較久。可以先離開這個頁面，但電腦版要保持開著。</p>`
+          : `<p class="note" style="margin-top:14px">⚠️ 免費模式在這個頁面裡製作，<b>請保持頁面開啟</b>，完成前不要關閉或重新整理。</p>`}</div>`;
     } else if (RUNNING.has(v.status) && !v.tracks.some((t) => t.audioUrl || t.streamUrl)) {
       const stages = ["PENDING", "TEXT_SUCCESS", "FIRST_SUCCESS", "SUCCESS"];
       const idx = stages.indexOf(v.status);
@@ -834,11 +876,21 @@ function renderSettings() {
       <h3>🎼 歌曲產生方式</h3>
       <div class="provs" id="provs">
         ${[
+          ["ace", "♾️ 免費無限 · 本機 AI 歌聲", "在你自己的電腦（需 NVIDIA 顯示卡）上跑開源 ACE-Step 模型，有中文歌聲、不限次數、不用帳號。要在電腦版裡使用（手機可透過電腦版的區網網址使用）。"],
           ["hf", "🆓 免費 · AI 歌聲（Hugging Face）", "用開源 ACE-Step 模型產生有中文歌聲的歌。免費，但每天有 GPU 額度限制，填入免費的 Hugging Face token 額度更多。"],
           ["local", "🆓 免費 · 本機合成純音樂", "在你的裝置上直接合成伴奏音樂，沒有歌聲。不用帳號、不限次數、離線也能用。"],
           ["suno", "💎 付費 · sunoapi.org", "品質最好、最像真人演唱，需要儲值點數。"],
         ].map(([k, t, d]) => `<label class="prov ${s.provider === k ? "on" : ""}"><input type="radio" name="prov" value="${k}" ${s.provider === k ? "checked" : ""}><b>${t}</b><span class="small muted">${d}</span></label>`).join("")}
       </div>
+    </div>
+    <div class="card" style="margin-top:16px" data-for="ace">
+      <h3>♾️ 本機 AI 歌聲</h3>
+      <p class="muted small">由電腦版「為你而唱」自動在背景啟動本機 AI。第一次產生要載入模型（約 1–2 分鐘），之後每首歌依長度約 1–5 分鐘。</p>
+      <div class="row"><button class="btn btn-ghost btn-sm" id="t-ace">檢查本機 AI 狀態</button><span id="t-ace-r" class="small muted"></span></div>
+      <div id="lanBox" style="margin-top:12px"></div>
+      <details class="faq"><summary>進階</summary>
+        <div class="kv"><label for="s-acebase">本機 AI 位址（留空自動）</label><input id="s-acebase" type="url" value="${esc(s.aceBase || "")}" placeholder="${esc(aceBase())}"></div>
+      </details>
     </div>
     <div class="card" style="margin-top:16px" data-for="hf">
       <h3>🤗 Hugging Face（免費 AI 歌聲）</h3>
@@ -888,6 +940,7 @@ function renderSettings() {
   showProv();
   const collect = () => ({
     provider: $("input[name=prov]:checked").value,
+    aceBase: $("#s-acebase").value.trim(),
     hfToken: $("#s-hf").value.trim(), hfSpace: $("#s-hfs").value.trim() || "ACE-Step/Ace-Step-v1.5",
     musicKey: $("#s-mk").value.trim(), musicModel: $("#s-mm").value, musicBase: $("#s-mb").value.trim() || "https://api.sunoapi.org",
     callbackUrl: $("#s-cb").value.trim(), negativeTags: $("#s-neg").value.trim(),
@@ -897,6 +950,24 @@ function renderSettings() {
   $("#saveS").onclick = () => { saveSettings(collect()); toast("設定已儲存"); };
   const tester = (btn, out, fn) => { $(btn).onclick = async () => { saveSettings(collect()); $(out).textContent = "測試中…"; try { $(out).textContent = "✅ " + (await fn()); } catch (e) { $(out).textContent = "❌ " + (e.message || e); } }; };
   tester("#t-music", "#t-music-r", testMusicKey);
+  tester("#t-ace", "#t-ace-r", async () => {
+    const st = await aceStatus();
+    if (!st.reachable) throw new Error("連不到電腦版。請在電腦上開啟「為你而唱」電腦版。");
+    if (!st.installed) throw new Error("電腦版找不到本機 AI（ace-step 資料夾）。");
+    if (st.ready) return "本機 AI 已就緒（" + (st.gpu || "GPU") + "）";
+    if (st.running) return "本機 AI 啟動中，第一次約需 1–2 分鐘…";
+    throw new Error("本機 AI 沒有在執行：" + (st.error || "請重新開啟電腦版"));
+  });
+  // 電腦版：區網分享（手機用）
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.lan_info) {
+    window.pywebview.api.lan_info().then((li) => {
+      const box = $("#lanBox");
+      if (!box) return;
+      box.innerHTML = `<label class="row small"><input type="checkbox" id="lanOn" ${li.enabled ? "checked" : ""}> 讓同一個 Wi-Fi 的手機也能使用（需重新開啟電腦版）</label>
+        ${li.enabled ? `<p class="small">手機瀏覽器打開：${li.urls.map((u) => `<b>${esc(u)}</b>`).join(" 或 ")}</p>` : ""}`;
+      $("#lanOn").onchange = async (e) => { await window.pywebview.api.set_lan(e.target.checked); toast("已儲存，請關閉並重新開啟電腦版"); };
+    }).catch(() => {});
+  }
   tester("#t-claude", "#t-claude-r", testClaudeKey);
   $("#exp").onclick = async () => { const data = await exportAll(); saveBlob(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), `為你而唱_歌曲備份_${new Date().toISOString().slice(0, 10)}.json`); };
   $("#imp").onchange = async (e) => {

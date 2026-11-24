@@ -199,6 +199,7 @@ export function templateLyrics(o) {
 
 const GRADIO_URL = "https://cdn.jsdelivr.net/npm/@gradio/client@2.7.2/+esm";
 export const PROVIDERS = {
+  ace: { name: "免費無限 · 本機 AI 歌聲", short: "本機 AI（免費無限）" },
   hf: { name: "免費 · Hugging Face ACE-Step", short: "ACE-Step（免費）" },
   local: { name: "免費 · 本機合成純音樂", short: "本機合成（免費）" },
   suno: { name: "付費 · sunoapi.org", short: "sunoapi（付費）" },
@@ -273,6 +274,82 @@ export async function runAceStep(v, onStatus) {
     out.push({ blob: await r.blob(), url });
   }
   return out;
+}
+
+// ───────────────────────── 免費無限：本機 ACE-Step（透過電腦版的 /ace 轉接） ─────────────────────────
+
+export function aceBase() {
+  const s = getSettings();
+  if (s.aceBase) return s.aceBase.replace(/\/+$/, "");
+  const local = location.port === "47831" || !!(window.pywebview && window.pywebview.api);
+  return local ? location.origin + "/ace" : "http://127.0.0.1:47831/ace";
+}
+
+async function aceFetch(path, body) {
+  let r;
+  try {
+    r = await fetch(aceBase() + path, body === undefined ? {} : {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error(location.port === "47831"
+      ? "連不到本機 AI，請確認「為你而唱」電腦版還開著。"
+      : "公開網頁版無法連到你電腦上的本機 AI。請直接在電腦上用「為你而唱」電腦版製作；手機請連同一個 Wi-Fi，打開電腦版設定頁顯示的區網網址。");
+  }
+  let j = null;
+  try { j = await r.json(); } catch { /* ignore */ }
+  if (r.status === 503 && j && j.sfy) throw new Error(j.message);
+  if (!r.ok) throw new Error("本機 AI 錯誤（" + r.status + "）：" + ((j && (j.detail || j.error || j.message)) || ""));
+  return j;
+}
+
+export async function aceStatus() {
+  const r = await fetch(aceBase().replace(/\/ace$/, "") + "/ace-status").catch(() => null);
+  if (!r || !r.ok) return { reachable: false };
+  return { reachable: true, ...(await r.json()) };
+}
+
+export async function startAce(v) {
+  const lyrics = String(v.lyrics || "");
+  const vocal = v.vocal === "m" ? ", male vocal" : v.vocal === "f" ? ", female vocal" : "";
+  const style = String(v.styleTags || "");
+  const j = await aceFetch("/release_task", {
+    prompt: (/(fe)?male vocal/i.test(style) ? style : style + vocal).slice(0, 500),
+    lyrics: lyrics.slice(0, 4000),
+    vocal_language: "zh",
+    audio_duration: Math.min(Number(v.length) || 120, 240),
+    batch_size: 1,
+    audio_format: "mp3",
+    thinking: false,
+    inference_steps: 8,
+  });
+  const id = j && j.data && j.data.task_id;
+  if (!id) throw new Error("本機 AI 沒有回傳任務編號：" + JSON.stringify(j).slice(0, 200));
+  return id;
+}
+
+export async function pollAce(taskId) {
+  const j = await aceFetch("/query_result", { task_id_list: [taskId] });
+  const item = (j && j.data && j.data[0]) || {};
+  if (item.status === 0 || item.status === undefined) {
+    const pct = String(item.progress_text || "").match(/(\d{1,3})%/);
+    return { done: false, failed: null, status: "PENDING", progress: pct ? `本機 AI 作曲演唱中… ${pct[1]}%` : "" };
+  }
+  if (item.status === 2) {
+    let msg = "";
+    try { const r = JSON.parse(item.result || "{}"); msg = (Array.isArray(r) ? r[0] : r)?.error || ""; } catch { msg = item.result || ""; }
+    return { done: false, failed: "本機 AI 產生失敗：" + (msg || item.error || "未知錯誤") };
+  }
+  let res = [];
+  try { res = JSON.parse(item.result || "[]"); } catch { /* ignore */ }
+  if (!Array.isArray(res)) res = [res];
+  const tracks = res.filter((x) => x && x.file).map((x, i) => ({
+    id: `ace-${taskId}-${i}`,
+    audioUrl: aceBase() + x.file,
+    duration: Number(x.metas && x.metas.duration) || 0,
+  }));
+  if (!tracks.length) return { done: false, failed: "本機 AI 沒有產生音檔" };
+  return { done: true, failed: null, status: "SUCCESS", tracks };
 }
 
 // ───────────────────────── 付費：sunoapi.org ─────────────────────────

@@ -20,6 +20,7 @@ export function getSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem(SKEY)) || {};
     const s = { ...DEFAULTS, ...saved };
+    if (!saved.provider && location.port === "47831") s.provider = "ace"; // 電腦版（或區網手機）預設用本機 AI
     if (!saved.provider && saved.musicKey) s.provider = "suno"; // 舊版已填付費金鑰的使用者
     return s;
   } catch {
