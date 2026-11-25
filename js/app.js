@@ -618,6 +618,32 @@ async function trackSrc(t) {
 }
 
 // ───────────────── 歌曲頁 ─────────────────
+const BIRTH_STAGES = ["正在創作歌詞……", "正在作曲編曲……", "正在錄製人聲……", "正在混音……", "正在做最後潤飾……"];
+// 依產生方式估計需要的秒數（用來顯示倒數與百分比）
+function expectedSecs(v) {
+  const len = Number(v.length) || 120;
+  if (v.provider === "ace") return 60 + len * 1.6;
+  if (v.provider === "local") return 20 + len * 0.6;
+  if (v.provider === "hf") return 150;
+  return 180;
+}
+function updateBirth(v) {
+  const el = (Date.now() - (v.createdAt || Date.now())) / 1000;
+  const E = expectedSecs(v);
+  let pct = Math.min(95, (el / E) * 100);
+  if (v.status === "FIRST_SUCCESS") pct = Math.max(pct, 85);
+  pct = Math.max(1, Math.floor(pct));
+  const stageI = pct < 15 ? 0 : pct < 35 ? 1 : pct < 65 ? 2 : pct < 85 ? 3 : 4;
+  const left = Math.ceil(E - el);
+  const set = (id, fn) => { const n = document.getElementById(id); if (n) fn(n); };
+  set("bPct", (n) => (n.textContent = pct + "%"));
+  set("bBar", (n) => (n.style.width = pct + "%"));
+  set("ringFg", (n) => (n.style.strokeDashoffset = String(326.7 * (1 - pct / 100))));
+  set("bTime", (n) => (n.textContent = left > 0 ? "預計還要 " + fmtTime(left) : "快完成了……"));
+  set("bStage", (n) => (n.textContent = v.provider === "local" && stageI === 2 ? "正在合成樂器……" : BIRTH_STAGES[stageI]));
+  set("bList", (n) => [...n.children].forEach((li, i) => { li.className = i < stageI ? "done" : i === stageI ? "now" : ""; }));
+}
+
 async function renderSong(id) {
   let song = await getSong(id);
   if (!song) { view.innerHTML = `<div class="empty"><h2>找不到這首歌</h2><a class="btn" href="#/songs">回到我的歌曲</a></div>`; return; }
@@ -626,64 +652,91 @@ async function renderSong(id) {
   cleanup = () => window.removeEventListener("sfy:song", onUpd);
   kickPoller();
 
+  let sel = 0; // 目前播放器顯示的版本（A/B）
+  let tick = null;
+  const prevCleanup = cleanup;
+  cleanup = () => { prevCleanup && prevCleanup(); clearInterval(tick); };
+
   const draw = () => {
+    clearInterval(tick);
     const v = song.versions[song.current] || song.versions[0];
     const o = song.order;
     const st = styleByKey(o.style);
     const oc = occasionByKey(o.occasion);
     document.title = `${v.title} · 為你而唱`;
-    const cover = v.tracks.find((t) => t.imageUrl)?.imageUrl;
-    const verBar = song.versions.length > 1 ? `<div class="versions" style="margin-top:12px">${song.versions.map((x, i) => `<button data-ver="${i}" class="${i === song.current ? "on" : ""}">第 ${x.n} 版 ${badge(x)}</button>`).join("")}</div>` : "";
+    const playable = v.tracks.filter((t) => t.blobKey || t.audioUrl || t.streamUrl);
+    if (sel >= playable.length) sel = 0;
+    const verBar = song.versions.length > 1 ? `<div class="versions">${song.versions.map((x, i) => `<button data-ver="${i}" class="${i === song.current ? "on" : ""}">第 ${x.n} 版 ${badge(x)}</button>`).join("")}</div>` : "";
+    const meta = `<p class="tiny final-meta">${oc.emoji} ${oc.name}${o.relation ? ` · 給${esc(o.relation)}` : ""}${o.sender ? ` · 來自 ${esc(o.sender)}` : ""}${v.provider ? ` · ${esc(PROVIDERS[v.provider]?.short || v.provider)}${v.provider === "local" ? "（純音樂）" : ""}` : ""}</p>`;
     let body = "";
-    if (RUNNING.has(v.status) && v.provider && v.provider !== "suno") {
-      body = `<div class="card making"><h2>${v.provider === "local" ? "正在合成你的音樂" : "AI 正在為你作曲與演唱"}</h2><div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
-        <p class="muted">${esc(v.progress || "處理中…")}</p>
-        ${v.provider === "ace"
-          ? `<p class="tiny" style="margin-top:14px">本機 AI 在你的電腦上製作，第一次使用要先載入模型，會比較久。可以先離開這個頁面，但電腦版要保持開著。</p>`
-          : `<p class="note" style="margin-top:14px">⚠️ 免費模式在這個頁面裡製作，<b>請保持頁面開啟</b>，完成前不要關閉或重新整理。</p>`}</div>`;
-    } else if (RUNNING.has(v.status) && !v.tracks.some((t) => t.audioUrl || t.streamUrl)) {
-      const stages = ["PENDING", "TEXT_SUCCESS", "FIRST_SUCCESS", "SUCCESS"];
-      const idx = stages.indexOf(v.status);
-      body = `<div class="card making"><h2>AI 正在為你作曲與演唱</h2><div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
-        <p class="muted">${STATUS_TEXT[v.status] || "處理中…"}</p>
-        <div class="stages">${["排隊", "編曲錄製", "第一版完成", "全部完成"].map((s, i) => `<span class="${i <= idx ? "on" : ""}">${s}</span>`).join("")}</div>
-        <p class="tiny" style="margin-top:14px">通常需要 1–5 分鐘，你可以先離開這個頁面，完成後會出現在「我的歌曲」。</p></div>`;
+    if (RUNNING.has(v.status) && !playable.length) {
+      // ── 等待頁：你的歌曲正在誕生 ──
+      body = `<div class="birth">
+        <h1 class="birth-h">你的歌曲正在誕生。</h1>
+        <p class="birth-sub">AI 正在為 <b>${esc(o.recipient)}</b> 作詞、作曲、演唱，請稍候一下。</p>
+        <div class="card birth-card">
+          <div class="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" class="ring-bg"/><circle cx="60" cy="60" r="52" class="ring-fg" id="ringFg"/></svg><span id="bPct">0%</span></div>
+          <div class="birth-time" id="bTime">--:--</div>
+          <div class="birth-stage" id="bStage">正在準備你的歌曲……</div>
+          <div class="pbar"><b id="bBar"></b></div>
+          <ol class="stage-list" id="bList">${BIRTH_STAGES.map((s) => `<li>${s}</li>`).join("")}</ol>
+          ${v.provider === "hf" || v.provider === "local"
+            ? `<p class="note">⚠️ 請保持這個頁面開啟，完成前不要關閉或重新整理。</p>`
+            : `<p class="tiny">可以先離開這個頁面，完成後會出現在「我的歌曲」${v.provider === "ace" ? "（電腦版要保持開著）" : ""}。</p>`}
+          ${v.progress ? `<p class="tiny" style="margin-top:6px">${esc(v.progress)}</p>` : ""}
+        </div>
+        <p class="birth-down">👇 完成後，你的歌曲會出現在這裡。</p>
+      </div>`;
     } else if (v.status === "FAILED") {
-      body = `<div class="card"><h3>😢 這個版本沒有成功</h3><p class="err">${esc(v.error || "未知錯誤")}</p>
-        <div class="row"><button class="btn btn-sm" id="retryVer">用同樣歌詞重試</button><button class="btn btn-ghost btn-sm" id="editVer">修改後重做</button></div></div>`;
+      body = `<div class="final"><h1 class="final-h">${esc(v.title)}</h1>${meta}
+        <div class="card"><h3>😢 這個版本沒有成功</h3><p class="err">${esc(v.error || "未知錯誤")}</p>
+        <div class="row"><button class="btn btn-sm" id="retryVer">用同樣歌詞重試</button><button class="btn btn-ghost btn-sm" id="editVer">修改後重做</button></div></div></div>`;
     } else {
-      body = `<div class="tracks">${v.tracks.map((t, i) => `
-        <div class="track" data-ti="${i}"><button class="play" aria-label="播放">▶</button>
-          <div class="meta"><b>版本 ${String.fromCharCode(65 + i)}</b> <span class="tiny">${t.duration ? fmtTime(t.duration) : ""}${t.blobKey ? " · 已存本機" : ""}${!t.audioUrl && t.streamUrl ? " · 串流預覽（收尾中）" : ""}</span>
-            <div class="bar"><b></b></div><div class="t"><span class="cur">0:00</span> / <span class="dur">${t.duration ? fmtTime(t.duration) : "--:--"}</span></div></div>
-          <button class="btn btn-ghost btn-sm dl" title="下載音檔" ${t.audioUrl || t.blobKey ? "" : "disabled"}>⬇ ${(t.ext || "mp3").toUpperCase()}</button>
-        </div>`).join("")}</div>
-        ${RUNNING.has(v.status) ? `<p class="tiny">⏳ ${STATUS_TEXT[v.status] || ""}</p>` : ""}
-        <div class="row" style="margin:6px 0 10px">
+      // ── 完成頁：歌名、說明、大播放鍵 ──
+      const t = playable[sel];
+      const ti = v.tracks.indexOf(t);
+      const label = playable.length > 1 ? `完整版 ${String.fromCharCode(65 + sel)}` : "完整版";
+      body = `<div class="final">
+        <h1 class="final-h">${esc(v.title)}</h1>
+        <p class="final-sub">專為${esc(o.recipient)}打造的${esc(st.name)}歌曲。</p>
+        <div class="card player track" data-ti="${ti}">
+          <div class="pl-row">
+            <button class="bigplay play" aria-label="播放">▶</button>
+            <div class="pl-meta">
+              <b class="pl-title">${t.duration ? fmtTime(t.duration) + " " : ""}${label}</b>
+              <div class="bar"><b></b></div>
+              <div class="t pl-times"><span class="cur">0:00</span><span class="dur">${t.duration ? fmtTime(t.duration) : "--:--"}</span></div>
+            </div>
+          </div>
+          <div class="pl-foot">
+            <span><i class="dot"></i> ${label}${RUNNING.has(v.status) ? "（收尾中）" : ""}</span>
+            <button class="linkbtn dl" ${t.audioUrl || t.blobKey ? "" : "disabled"}>⬇ 下載 ${(t.ext || "mp3").toUpperCase()}</button>
+          </div>
+        </div>
+        ${playable.length > 1 ? `<div class="versions center">${playable.map((x, i) => `<button data-tsel="${i}" class="${i === sel ? "on" : ""}">版本 ${String.fromCharCode(65 + i)}</button>`).join("")}</div>` : ""}
+        <div class="row center" style="margin:16px 0 6px">
           <button class="btn btn-sm" id="card">🖼 下載歌詞卡</button>
           ${navigator.share ? `<button class="btn btn-ghost btn-sm" id="share">📤 分享</button>` : ""}
           <button class="btn btn-ghost btn-sm" id="editVer">✏️ 修改重做</button>
-        </div>`;
+        </div>
+        ${meta}
+      </div>`;
     }
     view.innerHTML = `
-      <div class="song-head">
-        <div class="cover">${cover ? `<img src="${esc(cover)}" alt="封面">` : st.emoji}</div>
-        <div>
-          <p class="tiny">${oc.emoji} ${oc.name} · ${st.name}${o.relation ? ` · 給${esc(o.relation)}` : ""}</p>
-          <h1 style="font-size:clamp(28px,5vw,44px)">${esc(v.title)}</h1>
-          <p class="muted">專為 <b>${esc(o.recipient)}</b> 打造${o.sender ? `，來自 ${esc(o.sender)}` : ""}</p>
-          ${v.provider ? `<p class="tiny">產生方式：${esc(PROVIDERS[v.provider]?.short || v.provider)}${v.provider === "local" ? "（純音樂，無歌聲）" : ""}</p>` : ""}
-          ${verBar}
-        </div>
-      </div>
       ${body}
+      ${verBar ? `<div class="center" style="margin-top:6px">${verBar}</div>` : ""}
       <div id="editPanel"></div>
-      <section class="card" style="margin-top:18px"><h3 style="text-align:center">歌詞</h3><div class="lyrics-view">${lyricsHtml(v.lyrics)}</div></section>
+      ${!RUNNING.has(v.status) || playable.length ? `<section class="card final-lyrics"><h3>歌詞</h3><div class="lyrics-view">${lyricsHtml(v.lyrics)}</div></section>` : ""}
       <div class="row" style="justify-content:space-between;margin-top:18px">
         <a class="btn btn-ghost btn-sm" href="#/songs">← 我的歌曲</a>
         <button class="btn btn-danger btn-sm" id="del">刪除這首歌</button>
       </div>`;
     bind(v);
+    $$("[data-tsel]").forEach((b) => b.onclick = () => { sel = Number(b.dataset.tsel); stopAudio(); draw(); });
+    if ($("#bPct")) {
+      const upd = () => updateBirth(v);
+      upd(); tick = setInterval(upd, 1000);
+    }
   };
 
   const bind = (v) => {
