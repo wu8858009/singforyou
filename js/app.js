@@ -279,7 +279,7 @@ function stepWho(d) {
         ${[["", "自動判斷"], ["f", "👩 女生（妳）"], ["m", "👨 男生（你）"]].map(([k, t]) => `<button type="button" data-v="${k}" class="${(d.gender || "") === k ? "on" : ""}">${t}</button>`).join("")}
       </div></div>
     <div class="q"><label for="f-sender">你的署名（選填）</label>
-      <p class="hint">會寫進歌曲結尾，例如「阿哲，把這首歌送給妳」</p>
+      <p class="hint">會寫進歌曲結尾，例如「這首歌是阿哲送給妳的」</p>
       <input id="f-sender" type="text" maxlength="12" data-f="sender" value="${esc(d.sender)}" placeholder="例如：阿哲"></div>`;
 }
 
