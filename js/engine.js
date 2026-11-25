@@ -67,6 +67,7 @@ const SYSTEM_PROMPT = `你是台灣的專業華語作詞人，專門為客製化
 - 每句 7–14 字，好唱、押韻自然（副歌務必押韻），副歌要有一句容易記住、重複出現的主題句。
 - 這是一首「送給別人的禮物歌」：用送禮者第一人稱「我」對收禮人說話，從頭到尾視角一致；收禮人是女生時用「妳」，男生用「你」。
 - 語氣要符合兩人的關係：只有情侶／夫妻才寫戀愛的句子，對家人、朋友、長輩要用親情或友情的語氣。
+- 特別注意：收禮人不是送禮者的另一半時，「婚禮」要寫成送禮者祝福對方新婚（例如「新婚快樂、祝你們白頭偕老」），絕對不能寫成送禮者自己要和對方結婚、說「我願意」；「我愛你」「週年紀念」也要寫成友情或親情，不能有告白或戀愛的內容。
 - 每一句都是完整、通順、能唱的句子，不要斷在半句；主歌各段內容不要重複。
 - 有送禮者署名時，在 [Outro] 自然帶出「（署名）把這首歌送給你／妳」。
 - 歌曲主題必須緊扣「場合」：例如生日要唱生日快樂與許願、母親節要感謝媽媽、道歉要誠心說對不起、畢業要祝福前程；歌名也要呼應場合。
@@ -80,7 +81,8 @@ function briefFromOrder(o) {
   const lines = [
     `收禮對象：${o.recipient}（${o.relation || "關係未指定"}；性別：${isFemale(o) ? "女生，用「妳」" : o.gender === "m" || /爸|老公|先生|男朋友|兒子|哥|弟|爺爺|外公|阿公/.test(o.relation || "") ? "男生，用「你」" : "未指定，用「你」"}）`,
     `送禮者署名：${o.sender || "（未填）"}`,
-    `場合：${oc.name}（主題重點：${(OCC_LYRICS[oc.key] || {}).theme || oc.name}）——整首歌一定要圍繞這個場合，副歌要直接唱出這個場合的祝福或心意`,
+    `場合：${oc.name}（主題重點：${relGroupOf(o.relation, oc.key) !== "lover" && PLATONIC_THEME[oc.key] ? PLATONIC_THEME[oc.key] : (OCC_LYRICS[oc.key] || {}).theme || oc.name}）——整首歌一定要圍繞這個場合，副歌要直接唱出這個場合的祝福或心意`,
+    `兩人關係：${relGroupOf(o.relation, oc.key) === "lover" ? "情侶／夫妻（可以寫愛情）" : "不是情侶（只能寫友情、親情或祝福，不能寫成愛情）"}`,
     `曲風：${st.name}（參考英文風格：${st.tags}）`,
     `人聲：${o.vocal === "m" ? "男聲" : o.vocal === "f" ? "女聲" : "不限"}`,
     `整體情緒：${o.mood || "溫暖感動"}`,
@@ -284,6 +286,41 @@ const VERSE1_BANK = {
 };
 // 和場合主歌二重複的素材要避開
 const VERSE1_SKIP = { mother: /早餐|外套/, father: /騎車/, birthday: /^$/, missyou: /^$/ };
+// 情侶以外的對象（朋友、家人、長輩、同事…）：這些場合改用「祝福／情誼」版本，
+// 例如婚禮是祝福對方新婚，而不是唱成送禮人自己要和對方結婚。
+const OCC_LYRICS_PLATONIC = {
+  wedding: {
+    title: "{n}，新婚快樂",
+    verse2: ["紅毯的盡頭有人等你", "陽光灑在你幸福的臉上", "看你交換戒指的那一刻", "我的眼眶也跟著發燙"],
+    pre: ["從今以後有人陪你", "走過每一個晴天雨天"],
+    chorus: ["{n}，新婚快樂", "願你們牽手到白頭", "往後的日子甜甜蜜蜜", "幸福永遠在你身邊"],
+    bridge: ["不管你走到哪裡", "我永遠是你的後盾"],
+    outro: "{n}，祝你幸福",
+  },
+  love: {
+    title: "{n}，有你真好",
+    verse2: ["有些話平常說不出口", "都藏在每一次的關心", "你是我生命裡的寶藏", "比什麼都更重要"],
+    pre: ["今天我想大聲說", "你對我有多重要"],
+    chorus: ["{n}，謝謝你", "這份情誼比什麼都珍貴", "謝謝你一直在我身邊", "陪我笑也陪我哭"],
+    bridge: ["謝謝你一直在我身邊", "你是我最重要的人"],
+    outro: "{n}，有你真好",
+  },
+  anniversary: {
+    title: "又一年的我們",
+    verse2: ["認識你又過了一年", "我們一起笑過也哭過", "這些年的點點滴滴", "都是最珍貴的回憶"],
+    pre: ["數著一起走過的日子", "每一天都值得紀念"],
+    chorus: ["{n}，謝謝你", "陪我又走過了一年", "往後的每一個春夏秋冬", "我們都要一起過"],
+    bridge: ["不管時間怎麼走", "我們的情誼不會變"],
+    outro: "{n}，下一年也請多指教",
+  },
+};
+
+const PLATONIC_THEME = {
+  wedding: "婚禮祝福：送禮者祝福收禮人新婚快樂、祝新人白頭偕老；送禮者是賓客／親友，不是結婚的人",
+  love: "表達珍惜與感謝：這份友情或親情有多重要，不是告白",
+  anniversary: "認識或相伴的週年：一起走過的友情或親情時光",
+};
+
 // 情侶以外的對象，部分場合的橋段改成不帶戀愛語氣的版本
 const BRIDGE_NON_LOVER = {
   birthday: ["願這個世界溫柔待你", "每一天都有人把你放心上"],
@@ -295,8 +332,8 @@ const BRIDGE_NON_LOVER = {
 export function templateLyrics(o) {
   const n = o.recipient || "你";
   const oc = occasionByKey(o.occasion);
-  const L = OCC_LYRICS[oc.key] || OCC_LYRICS.birthday;
   const group = relGroupOf(o.relation, oc.key);
+  const L = (group !== "lover" && OCC_LYRICS_PLATONIC[oc.key]) || OCC_LYRICS[oc.key] || OCC_LYRICS.birthday;
   const f = (x) => String(x).replaceAll("{n}", n);
   const skip = VERSE1_SKIP[oc.key];
   const bank = VERSE1_BANK[group].filter((c) => !skip || !skip.test(c.join("")));
@@ -335,7 +372,7 @@ export function templateLyrics(o) {
   let title = f(L.title);
   if (isFemale(o)) {
     // 送給女生：你 → 妳（名字本身不動）
-    const fix = (t) => t.split(n).map((p) => p.replaceAll("你", "妳")).join(n);
+    const fix = (t) => t.split(n).map((p) => p.replace(/你(?!們)/g, "妳")).join(n); // 「你們」（新人兩位）維持不變
     lyrics = fix(lyrics); title = fix(title);
   }
   const st = styleByKey(o.style);
