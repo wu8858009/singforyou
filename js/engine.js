@@ -65,6 +65,7 @@ const SYSTEM_PROMPT = `你是台灣的專業華語作詞人，專門為客製化
 - 一律使用台灣繁體中文與台灣慣用語（台語歌則用台語漢字，必要時可混華語）。
 - 結構：[Intro]（可省略）、[Verse 1]、[Pre-Chorus]、[Chorus]、[Verse 2]、[Pre-Chorus]、[Chorus]、[Bridge]、[Final Chorus]、[Outro]。段落標籤用英文方括號，獨立一行。
 - 每句 7–14 字，好唱、押韻自然（副歌務必押韻），副歌要有一句容易記住、重複出現的主題句。
+- 歌曲主題必須緊扣「場合」：例如生日要唱生日快樂與許願、母親節要感謝媽媽、道歉要誠心說對不起、畢業要祝福前程；歌名也要呼應場合。
 - 把使用者提供的名字、回憶、細節、想說的話具體寫進歌裡，不要空泛套話；名字至少出現在副歌一次。
 - 歌詞內不要加註解、括號說明、和弦或表情符號。
 - style 欄位用英文，描述曲風、樂器、情緒、人聲（例如 female vocal / male vocal），不要包含任何真實歌手或樂團名字。`;
@@ -75,7 +76,7 @@ function briefFromOrder(o) {
   const lines = [
     `收禮對象：${o.recipient}（${o.relation || "關係未指定"}）`,
     `送禮者署名：${o.sender || "（未填）"}`,
-    `場合：${oc.name}`,
+    `場合：${oc.name}（主題重點：${(OCC_LYRICS[oc.key] || {}).theme || oc.name}）——整首歌一定要圍繞這個場合，副歌要直接唱出這個場合的祝福或心意`,
     `曲風：${st.name}（參考英文風格：${st.tags}）`,
     `人聲：${o.vocal === "m" ? "男聲" : o.vocal === "f" ? "女聲" : "不限"}`,
     `整體情緒：${o.mood || "溫暖感動"}`,
@@ -124,75 +125,149 @@ export async function generateLyrics(order) {
   };
 }
 
+// 每個場合專屬的歌詞段落（{n} = 名字）。範本詞與 Claude 作詞都會依此緊扣場合主題。
+export const OCC_LYRICS = {
+  birthday: {
+    title: "{n}，生日快樂", theme: "生日：祝福對方生日快樂、許願、吹蠟燭、又長大一歲、新的一年",
+    verse2: ["蛋糕上的燭光輕輕搖晃", "閉上眼睛許下你的願望", "又長大了一歲的你", "笑起來還是那麼閃亮"],
+    pre: ["今天全世界都為你歌唱", "把最好的祝福放在你身旁"],
+    chorus: ["{n}，祝你生日快樂", "願你每個願望都能實現", "新的一歲平安又健康", "快樂永遠住在你心上"],
+    bridge: ["吹熄蠟燭的那一刻", "我偷偷許的願也是你"],
+    outro: "{n}，生日快樂",
+  },
+  anniversary: {
+    title: "我們的又一年", theme: "週年紀念：一起走過的時間、日曆、承諾、未來的每一年",
+    verse2: ["日曆又翻過了一整年", "我們的故事還在寫", "吵過笑過也哭過", "最後還是牽著手不放開"],
+    pre: ["數著一起走過的季節", "每一天都值得紀念"],
+    chorus: ["{n}，週年快樂", "謝謝你陪我又走了一年", "往後的每一個春夏秋冬", "我都想和你一起過"],
+    bridge: ["就算時間再怎麼走", "我愛你的心從來沒變"],
+    outro: "{n}，下一年也請多指教",
+  },
+  love: {
+    title: "{n}，我愛你", theme: "告白／我愛你：勇敢說出愛、心動、想守護對方",
+    verse2: ["每次看見你的笑容", "我的心就跳得好快", "想了好久的那句話", "今天終於要說出來"],
+    pre: ["不想再藏在心裡", "我要讓你知道"],
+    chorus: ["{n}，我愛你", "比昨天更愛你", "想牽著你的手", "走過每一個晴天和雨季"],
+    bridge: ["全世界那麼大", "我只想住進你心裡"],
+    outro: "{n}，我愛你",
+  },
+  wedding: {
+    title: "從今以後", theme: "婚禮：誓言、禮堂、戒指、從今以後、白頭偕老",
+    verse2: ["紅毯的盡頭是你", "陽光灑在你的白紗上", "交換戒指的那一刻", "我聽見幸福的聲響"],
+    pre: ["在所有人的祝福裡", "我許下一生的誓言"],
+    chorus: ["{n}，從今以後", "你的手我會牢牢牽著", "不論晴天或是風雨", "我們一起白頭到老"],
+    bridge: ["這一生最好的決定", "就是在這裡說我願意"],
+    outro: "{n}，我願意",
+  },
+  mother: {
+    title: "{n}，謝謝你", theme: "母親節：感謝媽媽、媽媽的手、早餐、嘮叨、辛苦了",
+    verse2: ["你的手變得有點粗", "那是為我們操勞的痕跡", "你的嘮叨我曾經嫌煩", "現在才懂那是愛的語氣"],
+    pre: ["今天是屬於你的節日", "換我來說聲謝謝你"],
+    chorus: ["{n}，母親節快樂", "謝謝你給我所有的愛", "你辛苦了這麼多年", "換我來照顧你"],
+    bridge: ["不管我長到多大", "在你面前永遠是孩子"],
+    outro: "{n}，我愛你",
+  },
+  father: {
+    title: "爸爸的肩膀", theme: "父親節：感謝爸爸、寬厚的肩膀、沉默的愛、背影",
+    verse2: ["小時候坐在你的肩膀", "以為能看見整個世界", "你總是話不多", "卻把愛藏在每一件小事裡"],
+    pre: ["你的背影變得有點彎", "我卻還沒好好說謝謝"],
+    chorus: ["{n}，父親節快樂", "你的肩膀是我最大的依靠", "辛苦了那麼多年", "換我讓你驕傲"],
+    bridge: ["你沒說出口的愛", "我現在都懂了"],
+    outro: "{n}，謝謝你",
+  },
+  thanks: {
+    title: "謝謝你", theme: "感謝：感恩對方的付出、陪伴、在困難時伸出手",
+    verse2: ["在我最難過的時候", "是你陪我度過", "你給的每一份溫暖", "我都好好收著"],
+    pre: ["有些話一直想說", "今天終於說出口"],
+    chorus: ["{n}，真的謝謝你", "謝謝你出現在我的生命裡", "你給我的每一份好", "我會一輩子記得"],
+    bridge: ["如果沒有你", "我不會是今天的我"],
+    outro: "{n}，謝謝你",
+  },
+  missyou: {
+    title: "好想你", theme: "想念：距離、思念、夜晚、星空、期待重逢",
+    verse2: ["夜深了還睡不著", "看著窗外的星星", "我們之間隔著好遠", "思念卻一直沒停"],
+    pre: ["如果風能帶話", "請告訴你我在想你"],
+    chorus: ["{n}，我好想你", "想你的笑想你的聲音", "不管相隔多遠", "我的心一直在你那裡"],
+    bridge: ["等到再見面的那天", "我要好好抱緊你"],
+    outro: "{n}，我好想你",
+  },
+  sorry: {
+    title: "對不起", theme: "道歉：誠心道歉、反省、請求原諒、會改變、珍惜",
+    verse2: ["那天說了傷人的話", "看見你難過的眼睛", "我才知道自己錯了", "心裡好後悔好心疼"],
+    pre: ["想把時間倒轉回去", "把那些話收回來"],
+    chorus: ["{n}，對不起", "是我不夠好讓你受委屈", "請再給我一次機會", "我會好好珍惜你"],
+    bridge: ["我會學著更溫柔", "不再讓你掉眼淚"],
+    outro: "{n}，對不起，我愛你",
+  },
+  graduation: {
+    title: "出發吧", theme: "畢業：畢業典禮、學士帽、青春、夢想、勇敢出發、祝福未來",
+    verse2: ["拋起學士帽的那一刻", "青春在陽光下閃耀", "那些熬夜苦讀的日子", "都化成今天的驕傲"],
+    pre: ["下一站在前方等著", "帶著勇氣大步走"],
+    chorus: ["{n}，恭喜你畢業", "勇敢去追你的夢", "不管未來有多少挑戰", "我都會為你加油"],
+    bridge: ["累了就回頭看看", "我一直都在這裡"],
+    outro: "{n}，畢業快樂",
+  },
+  memorial: {
+    title: "你一直都在", theme: "追思紀念：懷念逝去的人、溫柔的回憶、你一直在心裡、天上的星星",
+    verse2: ["想起你溫暖的笑容", "好像你還在我身旁", "那些一起走過的路", "我都好好記在心上"],
+    pre: ["天上那顆最亮的星", "是不是你在看著我"],
+    chorus: ["{n}，我好想你", "你從來沒有離開", "你的愛還在這裡", "陪我走過每一天"],
+    bridge: ["我會帶著你的愛", "好好地生活下去"],
+    outro: "{n}，你一直都在",
+  },
+  milestone: {
+    title: "這一刻", theme: "人生里程碑：成就、新的開始、一路的努力、值得驕傲",
+    verse2: ["一路走來不容易", "汗水和眼淚都值得", "跌倒了再站起來", "才走到今天這一刻"],
+    pre: ["回頭看看那些腳印", "每一步都算數"],
+    chorus: ["{n}，這一刻屬於你", "所有努力都閃閃發光", "新的旅程已經開始", "我為你感到驕傲"],
+    bridge: ["不管下一站在哪裡", "我都會為你鼓掌"],
+    outro: "{n}，恭喜你",
+  },
+};
+
 // 沒有 Claude 金鑰時的內建範本詞（可再手動修改）
 export function templateLyrics(o) {
   const n = o.recipient || "你";
   const oc = occasionByKey(o.occasion);
-  const pick = (t, d) => (t && t.trim() ? t.trim().split(/[。！!？?\n，,；;]/).filter(Boolean) : [d]);
+  const L = OCC_LYRICS[oc.key] || OCC_LYRICS.birthday;
+  const f = (x) => String(x).replaceAll("{n}", n);
+  const pick = (t, d) => (t && t.trim() ? t.trim().split(/[。！!？?\n，,；;]/).map((x) => x.trim()).filter(Boolean) : [d]);
   const person = pick(o.q_person, "你總是溫柔又堅強");
   const memory = pick(o.q_memory, "那些一起走過的日子");
-  const detail = pick(o.q_detail, "你的笑聲最好認");
-  const message = pick(o.q_message, "謝謝你一直在我身邊");
-  const occLine = {
-    birthday: `${n}，祝你生日快樂`,
-    anniversary: "又走過了一年的時光",
-    love: `${n}，我想說我愛你`,
-    wedding: "從今以後牽手一起走",
-    mother: "媽媽，你辛苦了",
-    father: "爸爸，你的肩膀最可靠",
-    thanks: `${n}，真的謝謝你`,
-    missyou: `${n}，我好想你`,
-    sorry: "對不起，讓你難過了",
-    graduation: "帶著夢想勇敢出發",
-    memorial: "你一直活在我心上",
-    milestone: "這一刻值得被記得",
-  }[o.occasion] || `${n}，這首歌給你`;
-  const mood = o.relation ? `我的${o.relation}` : "最重要的人";
   const lyrics = [
     "[Verse 1]",
-    `${person[0]}`,
-    `${person[1] || "像陽光灑在窗台上"}`,
-    `${memory[0]}`,
-    `${memory[1] || "我一直都收藏在心上"}`,
+    person[0],
+    person[1] || "像陽光灑在窗台上",
+    memory[0],
+    memory[1] || "我一直都收藏在心上",
     "",
     "[Pre-Chorus]",
-    `${detail[0]}`,
-    "每個小細節都是我的寶藏",
+    ...L.pre.map(f),
     "",
     "[Chorus]",
-    `${occLine}`,
-    `${n}，你是${mood}`,
-    `${message[0]}`,
-    "這首歌唱給你，唱到地久天長",
+    ...L.chorus.map(f),
     "",
     "[Verse 2]",
-    `${memory[2] || "時間走得再快也不慌"}`,
-    `${detail[1] || "因為有你在身旁"}`,
-    "回頭看看那些腳印",
-    "每一步都寫著我們的模樣",
+    ...L.verse2.map(f),
+    "",
+    "[Pre-Chorus]",
+    ...L.pre.map(f),
     "",
     "[Chorus]",
-    `${occLine}`,
-    `${n}，你是${mood}`,
-    `${message[1] || message[0]}`,
-    "這首歌唱給你，唱到地久天長",
+    ...L.chorus.map(f),
     "",
     "[Bridge]",
-    o.q_words ? `${o.q_words}` : "就算世界再大再忙",
-    "我也會記得你的模樣",
+    ...(o.q_words ? [o.q_words, L.bridge[1]] : L.bridge).map(f),
     "",
     "[Final Chorus]",
-    `${occLine}`,
-    `${n}，你是${mood}`,
-    "所有說不出口的話",
-    "都在這首歌裡為你輕輕地唱",
+    ...L.chorus.map(f),
     "",
     "[Outro]",
-    `${n}，這首歌給你`,
+    f(L.outro),
   ].join("\n");
   const st = styleByKey(o.style);
   const vocal = o.vocal === "m" ? ", male vocal" : o.vocal === "f" ? ", female vocal" : "";
-  return { title: `給${n}的歌`, lyrics, style: st.tags + vocal, source: "template", occasion: oc.key };
+  return { title: f(L.title), lyrics, style: st.tags + vocal, source: "template", occasion: oc.key };
 }
 
 // ───────────────────────── 免費：Hugging Face ACE-Step ─────────────────────────
