@@ -228,7 +228,7 @@ function renderCreate(occArg) {
       const song = {
         id, createdAt: Date.now(),
         order: {
-          recipient: d.recipient, relation: d.relation, sender: d.sender, occasion: d.occasion, style: d.style,
+          recipient: d.recipient, relation: d.relation, gender: d.gender || "", sender: d.sender, occasion: d.occasion, style: d.style,
           vocal: d.vocal, mood: d.mood, length: d.length,
           q_person: d.q_person, q_memory: d.q_memory, q_detail: d.q_detail, q_message: d.q_message, q_words: d.q_words,
         },
@@ -271,8 +271,14 @@ function stepWho(d) {
       <div class="pick" data-pick="occasion">
         ${OCCASIONS.map((o) => `<button type="button" data-v="${o.key}" class="${d.occasion === o.key ? "on" : ""}"><span class="e">${o.emoji}</span>${o.name}</button>`).join("")}
       </div></div>
+    <div class="q"><span class="lbl">對方是</span>
+      <p class="hint">決定歌詞用「妳」還是「你」</p>
+      <div class="seg" data-pick="gender">
+        ${[["", "自動判斷"], ["f", "👩 女生（妳）"], ["m", "👨 男生（你）"]].map(([k, t]) => `<button type="button" data-v="${k}" class="${(d.gender || "") === k ? "on" : ""}">${t}</button>`).join("")}
+      </div></div>
     <div class="q"><label for="f-sender">你的署名（選填）</label>
-      <input id="f-sender" type="text" maxlength="20" data-f="sender" value="${esc(d.sender)}" placeholder="例如：永遠愛你的阿哲"></div>`;
+      <p class="hint">會寫進歌曲結尾，例如「阿哲，把這首歌送給妳」</p>
+      <input id="f-sender" type="text" maxlength="12" data-f="sender" value="${esc(d.sender)}" placeholder="例如：阿哲"></div>`;
 }
 
 function stepStyle(d) {
@@ -349,7 +355,7 @@ function relGroup(rel) {
 function autoStory(d) {
   const g = d.occasion === "mother" || d.occasion === "father" ? "parent"
     : (["love", "wedding", "anniversary"].includes(d.occasion) && !d.relation) ? "lover" : relGroup(d.relation || "");
-  const key = [g, d.occasion, d.recipient, d.relation, d.style, d.vocal, d.mood, d.length].join("|");
+  const key = [g, d.occasion, d.recipient, d.relation, d.gender, d.sender, d.style, d.vocal, d.mood, d.length].join("|");
   if (d._storyKey === key && d.q_person) return;
   // 對象或風格改了：重新產生故事素材，歌詞也要重寫
   const b = STORY_BANK[g];

@@ -65,6 +65,10 @@ const SYSTEM_PROMPT = `你是台灣的專業華語作詞人，專門為客製化
 - 一律使用台灣繁體中文與台灣慣用語（台語歌則用台語漢字，必要時可混華語）。
 - 結構：[Intro]（可省略）、[Verse 1]、[Pre-Chorus]、[Chorus]、[Verse 2]、[Pre-Chorus]、[Chorus]、[Bridge]、[Final Chorus]、[Outro]。段落標籤用英文方括號，獨立一行。
 - 每句 7–14 字，好唱、押韻自然（副歌務必押韻），副歌要有一句容易記住、重複出現的主題句。
+- 這是一首「送給別人的禮物歌」：用送禮者第一人稱「我」對收禮人說話，從頭到尾視角一致；收禮人是女生時用「妳」，男生用「你」。
+- 語氣要符合兩人的關係：只有情侶／夫妻才寫戀愛的句子，對家人、朋友、長輩要用親情或友情的語氣。
+- 每一句都是完整、通順、能唱的句子，不要斷在半句；主歌各段內容不要重複。
+- 有送禮者署名時，在 [Outro] 自然帶出「（署名）把這首歌送給你／妳」。
 - 歌曲主題必須緊扣「場合」：例如生日要唱生日快樂與許願、母親節要感謝媽媽、道歉要誠心說對不起、畢業要祝福前程；歌名也要呼應場合。
 - 把使用者提供的名字、回憶、細節、想說的話具體寫進歌裡，不要空泛套話；名字至少出現在副歌一次。
 - 歌詞內不要加註解、括號說明、和弦或表情符號。
@@ -74,7 +78,7 @@ function briefFromOrder(o) {
   const st = styleByKey(o.style);
   const oc = occasionByKey(o.occasion);
   const lines = [
-    `收禮對象：${o.recipient}（${o.relation || "關係未指定"}）`,
+    `收禮對象：${o.recipient}（${o.relation || "關係未指定"}；性別：${isFemale(o) ? "女生，用「妳」" : o.gender === "m" || /爸|老公|先生|男朋友|兒子|哥|弟|爺爺|外公|阿公/.test(o.relation || "") ? "男生，用「你」" : "未指定，用「你」"}）`,
     `送禮者署名：${o.sender || "（未填）"}`,
     `場合：${oc.name}（主題重點：${(OCC_LYRICS[oc.key] || {}).theme || oc.name}）——整首歌一定要圍繞這個場合，副歌要直接唱出這個場合的祝福或心意`,
     `曲風：${st.name}（參考英文風格：${st.tags}）`,
@@ -225,21 +229,84 @@ export const OCC_LYRICS = {
   },
 };
 
+// 依關係分組（決定主歌一的內容與語氣）
+export function relGroupOf(rel, occasion) {
+  if (occasion === "mother" || occasion === "father") return "parent";
+  if (/老婆|老公|另一半|女朋友|男朋友|太太|先生|愛人/.test(rel || "")) return "lover";
+  if (/媽|爸|奶奶|爺爺|外婆|外公|阿嬤|阿公/.test(rel || "")) return "parent";
+  if (/女兒|兒子|孩子|寶貝/.test(rel || "")) return "child";
+  if (/姊|姐|妹|哥|弟|兄|家人/.test(rel || "")) return "family";
+  if (!rel && ["love", "wedding", "anniversary"].includes(occasion)) return "lover";
+  return "friend";
+}
+// 收禮人性別：gender 欄位優先，否則從關係判斷。女生用「妳」
+export function isFemale(o) {
+  if (o.gender === "f") return true;
+  if (o.gender === "m") return false;
+  return /老婆|女朋友|太太|媽|女兒|姊|姐|妹|奶奶|外婆|阿嬤|阿姨|嬸|姑/.test(o.relation || "") ||
+    (o.occasion === "mother" && !/爸|老公|先生|男朋友|兒子|哥|弟/.test(o.relation || ""));
+}
+
+// 主歌一：每組是完整的兩句（避免句子被截斷），從送禮人的角度對收禮人說
+const VERSE1_BANK = {
+  lover: [
+    ["你笑起來像彎彎的月亮", "整個房間都跟著發亮"],
+    ["第一次見面我好緊張", "話都說得結結巴巴"],
+    ["下雨天擠在同一把傘下", "誰也捨不得先回家"],
+    ["你總記得我的半糖少冰", "把我放在心上每一天"],
+    ["吵架後先笑出來的總是你", "讓我知道什麼叫珍惜"],
+  ],
+  parent: [
+    ["小時候發燒的那個夜裡", "你整晚守在我的床邊"],
+    ["每天早上桌上的早餐", "是我吃過最好的味道"],
+    ["你騎車載我去上學", "我在後座慢慢長大"],
+    ["電話裡你總說你很好", "叫我千萬別替你擔心"],
+    ["出門前你總要問一句", "外套有沒有記得帶"],
+  ],
+  child: [
+    ["你第一次叫我的那天", "我開心得好久睡不著"],
+    ["牽著你的小手去上學", "看你回頭對我揮手"],
+    ["你睡著時安靜的臉", "是我看不膩的風景"],
+    ["你總有問不完的為什麼", "讓每天都變得新鮮"],
+  ],
+  family: [
+    ["小時候搶同一個玩具", "吵完了又一起笑"],
+    ["長大後各自忙碌", "見面還是像從前一樣"],
+    ["那些一起過的年", "熱鬧又溫暖"],
+    ["你嘴上從來不說", "心裡卻最在乎家人"],
+  ],
+  friend: [
+    ["你是隨傳隨到的朋友", "從來不曾缺席"],
+    ["你總能用一句話", "讓我笑得停不下來"],
+    ["那些聊到天亮的晚上", "是我最珍貴的時光"],
+    ["我最低潮的那段日子", "是你陪我走了過來"],
+  ],
+};
+// 和場合主歌二重複的素材要避開
+const VERSE1_SKIP = { mother: /早餐|外套/, father: /騎車/, birthday: /^$/, missyou: /^$/ };
+// 情侶以外的對象，部分場合的橋段改成不帶戀愛語氣的版本
+const BRIDGE_NON_LOVER = {
+  birthday: ["願這個世界溫柔待你", "每一天都有人把你放心上"],
+  love: ["謝謝你一直在我身邊", "你是我最重要的人"],
+  missyou: ["等到再見面的那一天", "我們再好好聊個痛快"],
+};
+
 // 沒有 Claude 金鑰時的內建範本詞（可再手動修改）
 export function templateLyrics(o) {
   const n = o.recipient || "你";
   const oc = occasionByKey(o.occasion);
   const L = OCC_LYRICS[oc.key] || OCC_LYRICS.birthday;
+  const group = relGroupOf(o.relation, oc.key);
   const f = (x) => String(x).replaceAll("{n}", n);
-  const pick = (t, d) => (t && t.trim() ? t.trim().split(/[。！!？?\n，,；;]/).map((x) => x.trim()).filter(Boolean) : [d]);
-  const person = pick(o.q_person, "你總是溫柔又堅強");
-  const memory = pick(o.q_memory, "那些一起走過的日子");
-  const lyrics = [
+  const skip = VERSE1_SKIP[oc.key];
+  const bank = VERSE1_BANK[group].filter((c) => !skip || !skip.test(c.join("")));
+  const [c1, c2] = [...bank].sort(() => Math.random() - 0.5);
+  const bridge = group !== "lover" && BRIDGE_NON_LOVER[oc.key] ? BRIDGE_NON_LOVER[oc.key] : L.bridge;
+  const finalChorus = [...L.chorus.slice(0, 3), "這首歌，是我想對你說的話"];
+  const outro = o.sender ? [f(L.outro), `${o.sender}，把這首歌送給你`] : [f(L.outro)];
+  let lyrics = [
     "[Verse 1]",
-    person[0],
-    person[1] || "像陽光灑在窗台上",
-    memory[0],
-    memory[1] || "我一直都收藏在心上",
+    ...c1, ...(c2 || ["那些一起走過的日子", "我都好好收藏在心上"]),
     "",
     "[Pre-Chorus]",
     ...L.pre.map(f),
@@ -257,17 +324,23 @@ export function templateLyrics(o) {
     ...L.chorus.map(f),
     "",
     "[Bridge]",
-    ...(o.q_words ? [o.q_words, L.bridge[1]] : L.bridge).map(f),
+    ...(o.q_words ? [o.q_words, bridge[1]] : bridge).map(f),
     "",
     "[Final Chorus]",
-    ...L.chorus.map(f),
+    ...finalChorus.map(f),
     "",
     "[Outro]",
-    f(L.outro),
+    ...outro,
   ].join("\n");
+  let title = f(L.title);
+  if (isFemale(o)) {
+    // 送給女生：你 → 妳（名字本身不動）
+    const fix = (t) => t.split(n).map((p) => p.replaceAll("你", "妳")).join(n);
+    lyrics = fix(lyrics); title = fix(title);
+  }
   const st = styleByKey(o.style);
   const vocal = o.vocal === "m" ? ", male vocal" : o.vocal === "f" ? ", female vocal" : "";
-  return { title: f(L.title), lyrics, style: st.tags + vocal, source: "template", occasion: oc.key };
+  return { title, lyrics, style: st.tags + vocal, source: "template", occasion: oc.key };
 }
 
 // ───────────────────────── 免費：Hugging Face ACE-Step ─────────────────────────
