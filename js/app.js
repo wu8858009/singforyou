@@ -50,12 +50,12 @@ function renderHome() {
   <section class="hero">
     <div>
       <h1>把你們的故事<br><span class="grad-text">寫成一首專屬的歌</span></h1>
-      <p class="lead">回答幾個簡單的問題，AI 作詞人把你們的回憶寫進歌詞，再由 AI 作曲、編曲、演唱，做出一首只屬於他／她的歌。</p>
+      <p class="lead">只要填名字、選場合和曲風，AI 就自動寫好歌詞，再作曲、編曲、演唱，做出一首只屬於他／她的歌。</p>
       <div class="row" style="margin-top:22px">
         <a class="btn" href="#/create">🎵 立即製作我的歌</a>
         <a class="btn btn-ghost" href="#how">看看怎麼做</a>
       </div>
-      <div class="badges"><span>🆓 有免費模式</span><span>⏱ 約 5 分鐘填寫</span><span>🎙 每次產生 2 個版本</span><span>🔁 不滿意可修改重做</span></div>
+      <div class="badges"><span>🆓 有免費模式</span><span>⏱ 1 分鐘設定</span><span>🎙 每次產生 2 個版本</span><span>🔁 不滿意可修改重做</span></div>
     </div>
     <div class="vinyl" aria-hidden="true">
       <div class="disc"></div>
@@ -70,8 +70,8 @@ function renderHome() {
     <header><h2>簡單 4 步驟</h2><p class="muted">從你的故事到一首完整的歌</p></header>
     <div class="grid g4">
       ${[
-        ["分享你的故事", "回答幾個問題：對方是誰、你們的關係，以及想紀念的回憶。不需要任何寫作技巧。"],
-        ["AI 為你寫詞", "依照你的故事寫出原創歌詞，名字、回憶和想說的話都會放進歌裡，你也能自己修改。"],
+        ["選擇對象與場合", "填上名字、選關係和場合，不用寫任何東西，AI 會自動準備故事素材。"],
+        ["AI 為你寫詞", "自動寫出原創歌詞，名字和祝福都會放進歌裡；想修改也可以逐字調整。"],
         ["AI 作曲演唱", "依你選擇的曲風和人聲作曲、編曲、演唱，每次產生兩個版本讓你挑。"],
         ["送上這份感動", "下載 MP3 和精美歌詞卡，在生日、紀念日或晚餐時播放，給對方一個驚喜。"],
       ].map(([t, d], i) => `<div class="card"><div class="step-n">${i + 1}</div><h3>${t}</h3><p class="muted small">${d}</p></div>`).join("")}
@@ -91,10 +91,10 @@ function renderHome() {
   <section class="block" style="max-width:760px;margin:auto">
     <header><h2>常見問題</h2></header>
     ${[
-      ["歌詞需要我自己寫嗎？", "不用。你只要回答問題，AI 會幫你寫好完整歌詞；寫好後你可以逐字修改，或告訴 AI 哪裡要改讓它重寫。"],
+      ["歌詞需要我自己寫嗎？", "不用。你只要填名字、選場合，AI 會幫你寫好完整歌詞；寫好後你可以逐字修改，或告訴 AI 哪裡要改讓它重寫。"],
       ["需要付費嗎？", "不用。預設使用免費的開源 AI 模型（Hugging Face 上的 ACE-Step）產生有歌聲的歌，每天有免費額度；也可以選「本機合成」做不限次數的純音樂。想要更好的音質，可以在設定改用付費的 sunoapi.org。"],
       ["歌曲是怎麼做出來的？", "歌詞由 Claude 撰寫（未設定金鑰時使用內建範本），歌曲由你在「設定」選擇的方式產生，包含旋律、編曲與 AI 歌聲。"],
-      ["需要多久？", "填寫約 5 分鐘；送出後 AI 音樂服務通常 1–5 分鐘內完成，期間可以離開頁面，完成後回到「我的歌曲」就能聽。"],
+      ["需要多久？", "設定約 1 分鐘；送出後 AI 音樂服務通常 1–5 分鐘內完成，期間可以離開頁面，完成後回到「我的歌曲」就能聽。"],
       ["不滿意可以修改嗎？", "可以。在歌曲頁按「修改重做」，調整歌詞或曲風就能產生新版本，舊版本也會保留。每次產生會使用 AI 音樂服務的點數。"],
       ["歌曲會存在哪裡？", "歌曲資料存在你自己的瀏覽器（電腦版存在本機）。AI 音樂服務的檔案連結大約保留 14 天，建議完成後下載 MP3 保存。"],
     ].map(([q, a]) => `<details class="faq"><summary>${q}</summary><p>${a}</p></details>`).join("")}
@@ -102,13 +102,13 @@ function renderHome() {
 
   <section class="cta-band">
     <h2>一份讓人想反覆聆聽的禮物</h2>
-    <p class="muted">花幾分鐘說出你們的故事，我們把它寫成一首歌。</p>
+    <p class="muted">填個名字、選好場合，剩下的交給 AI。</p>
     <a class="btn" href="#/create">開始製作我的歌</a>
   </section>`;
 }
 
 // ───────────────── 製作問卷 ─────────────────
-const STEPS = ["對象", "風格", "故事", "歌詞", "製作"];
+const STEPS = ["對象", "風格", "歌詞", "製作"];
 const MOODS = ["溫暖感動", "甜蜜浪漫", "輕快歡樂", "深情催淚", "勵志熱血", "懷念溫柔"];
 
 function newDraft(occasion) {
@@ -134,11 +134,11 @@ function renderCreate(occArg) {
     <div class="wizard">
       <div class="progress">${STEPS.map((s, i) => `<span class="${i <= st ? "on" : ""}" title="${s}"></span>`).join("")}</div>
       <p class="tiny">步驟 ${st + 1} / ${STEPS.length}：${STEPS[st]}</p>
-      <div class="card" id="wcard">${[stepWho, stepStyle, stepStory, stepLyrics, stepMake][st](d)}</div>
+      <div class="card" id="wcard">${[stepWho, stepStyle, stepLyrics, stepMake][st](d)}</div>
       <div class="wiz-nav">
         ${st > 0 ? `<button class="btn btn-ghost" id="back">← 上一步</button>` : `<button class="btn btn-ghost" id="reset">清空重填</button>`}
-        ${st < 3 ? `<button class="btn" id="next">下一步 →</button>` : ""}
-        ${st === 3 ? `<button class="btn" id="next" ${d.lyrics ? "" : "disabled"}>確認歌詞，開始製作 →</button>` : ""}
+        ${st < 2 ? `<button class="btn" id="next">${st === 1 ? "產生歌詞 →" : "下一步 →"}</button>` : ""}
+        ${st === 2 ? `<button class="btn" id="next" ${d.lyrics ? "" : "disabled"}>確認歌詞，開始製作 →</button>` : ""}
       </div>
       <p class="err" id="werr"></p>
     </div>`;
@@ -178,22 +178,22 @@ function renderCreate(occArg) {
     if (reset) reset.onclick = () => { if (confirm("確定要清空目前填寫的內容？")) { d = newDraft(); draw(); } };
     const next = $("#next");
     if (next) next.onclick = onNext;
-    if (d.step === 4) makeIt();
+    if (d.step === 3) makeIt();
   };
-  const updNext = () => { const n = $("#next"); if (n && d.step === 3) n.disabled = !d.lyrics.trim(); };
+  const updNext = () => { const n = $("#next"); if (n && d.step === 2) n.disabled = !d.lyrics.trim(); };
   const err = (m) => { $("#werr").textContent = m || ""; };
 
   const onNext = () => {
     err("");
     if (d.step === 0 && !d.recipient.trim()) return err("請填寫收禮對象的名字或稱呼。");
-    if (d.step === 2 && !(d.q_person + d.q_memory + d.q_message).trim()) return err("至少填寫一題故事，歌詞才會有你們的味道。");
-    if (d.step === 3) {
+    if (d.step === 1) autoStory(d);
+    if (d.step === 2) {
       if (!d.title.trim()) d.title = `給${d.recipient}的歌`;
       if (!d.lyrics.trim()) return err("請先產生或填寫歌詞。");
     }
     d.step++;
     draw();
-    if (d.step === 3 && !d.lyrics) doGen();
+    if (d.step === 2 && !d.lyrics) doGen();
   };
 
   async function doGen(isRegen) {
@@ -210,11 +210,11 @@ function renderCreate(occArg) {
       const r = await generateLyrics(order);
       d.title = r.title; d.lyrics = r.lyrics; d.styleTags = r.style; d.lyricsSource = r.source;
       save();
-      if (d.step === 3) draw();
+      if (d.step === 2) draw();
       if (r.source === "template") toast("已用內建範本產生歌詞，建議再自行潤飾（設定 Claude 金鑰可得到 AI 量身寫詞）");
     } catch (e) {
       console.error(e);
-      if (d.step === 3) { draw(); err("歌詞產生失敗：" + (e.message || e)); }
+      if (d.step === 2) { draw(); err("歌詞產生失敗：" + (e.message || e)); }
     }
   }
 
@@ -292,24 +292,82 @@ function stepStyle(d) {
       <div class="seg" data-pick="length">${LENGTHS.map((l) => `<button type="button" data-v="${l.key}" class="${Number(d.length) === l.key ? "on" : ""}">${l.name}</button>`).join("")}</div></div>`;
 }
 
-function stepStory(d) {
-  const n = esc(d.recipient || "他／她");
-  const q = (f, label, hint, ph) => `<div class="q"><label for="f-${f}">${label}</label><p class="hint">${hint}</p><textarea id="f-${f}" data-f="${f}" maxlength="600" placeholder="${ph}">${esc(d[f])}</textarea></div>`;
-  return `
-    <h2>說說你們的故事</h2>
-    <p class="muted small">寫得越具體，歌詞越動人。用聊天的口吻就好，不用修飾。</p>
-    ${q("q_person", `${n}是個什麼樣的人？`, "個性、外表、讓你欣賞的地方", "例如：她笑起來眼睛會瞇成一條線，很愛照顧別人，但常常忘記照顧自己")}
-    ${q("q_memory", "你們最難忘的回憶是什麼？", "第一次見面、一起旅行、度過的難關……", "例如：2019 年在淡水看夕陽，她說想一輩子都這樣；去年我生病時她每天熬粥給我")}
-    ${q("q_detail", "有什麼只有你們懂的小事？", "口頭禪、綽號、小習慣、共同的喜好", "例如：她都叫我「大熊」，我們每週五一定吃火鍋")}
-    ${q("q_message", `最想對${n}說的一句話？`, "平常說不出口的心裡話", "例如：謝謝你陪我走過最難的日子，未來換我照顧你")}
-    ${q("q_words", "一定要放進歌裡的字詞（選填）", "例如紀念日、地名、寵物名字", "例如：淡水、大熊、火鍋、11 月 8 日")}`;
+// 不用填故事：依關係與場合自動寫好故事素材，歌詞產生器會用這些內容
+const STORY_BANK = {
+  lover: {
+    person: ["你笑起來眼睛會彎成月亮，讓整個房間都亮了起來", "你總是默默照顧身邊的人，卻常常忘了照顧自己", "你溫柔又勇敢，是我最想依靠的肩膀"],
+    memory: ["第一次見面那天，我緊張到話都說不清楚", "我們一起看過的那場夕陽，你說想一輩子都這樣", "下雨天擠在同一把傘下，誰也捨不得先走"],
+    detail: ["每次吵架，最後先笑出來的總是你", "你總記得我愛喝的飲料要半糖少冰", "睡前一定要說一聲晚安才肯睡"],
+    message: ["謝謝你一直在我身邊，未來的每一天我都想牽著你", "不管世界多大，我都只想和你一起變老"],
+  },
+  parent: {
+    person: ["你的雙手有一點粗，卻是世界上最溫暖的手", "你總把最好的留給我們，自己卻捨不得花一塊錢", "你的嘮叨，原來全是放不下的牽掛"],
+    memory: ["小時候發燒的夜裡，你整晚沒睡守在床邊", "每天早上桌上那份熱騰騰的早餐", "你騎車載我上學，我在後座數著路燈長大"],
+    detail: ["每次出門你都要問一句：有沒有帶外套", "你煮的那道菜，外面怎麼吃都不是那個味道", "電話裡總是說你很好，叫我別擔心"],
+    message: ["謝謝你，辛苦了，換我來照顧你", "我長大了，以後讓我當你的依靠"],
+  },
+  child: {
+    person: ["你是上天送給我最珍貴的禮物", "你的笑聲是我一天裡最好的力量", "你一天天長大，勇敢又善良"],
+    memory: ["你第一次叫我的那一天，我開心了好久", "牽著你的小手第一次去上學", "你睡著時安靜的臉，是我看不膩的風景"],
+    detail: ["你總愛問好多為什麼", "每次抱你，你都會把頭靠在我肩上", "你最愛的那首兒歌，我們唱了好多遍"],
+    message: ["不管你走多遠，家永遠在這裡等你", "願你勇敢做夢，平安快樂地長大"],
+  },
+  family: {
+    person: ["你是我從小到大最好的玩伴", "你嘴上不說，心裡卻比誰都在乎家人", "有你在，我就覺得什麼都不怕"],
+    memory: ["小時候搶同一個玩具，吵完又一起笑", "長大後各自忙碌，見面時還是像從前一樣", "那些一起過的年，熱鬧又溫暖"],
+    detail: ["只有我們懂的那些暗號", "你總是第一個知道我的心事", "每次聚會你都負責把大家逗笑"],
+    message: ["謝謝你一直是我最堅強的後盾", "不管多少年過去，我們都是一家人"],
+  },
+  friend: {
+    person: ["你是那個隨傳隨到、從不缺席的朋友", "你總能用一句話讓我笑出來", "你真誠又講義氣，是我最信任的人"],
+    memory: ["那些熬夜聊天聊到天亮的晚上", "一起去過的旅行，迷路也變成好玩的回憶", "我最低潮的時候，是你陪我走過來"],
+    detail: ["我們的對話永遠停不下來", "一個眼神就知道對方在想什麼", "每次見面都要吃同一家店"],
+    message: ["謝謝你出現在我的生命裡", "不管走多遠，我們都要一直當好朋友"],
+  },
+};
+const OCCASION_MSG = {
+  birthday: "祝你生日快樂，願你的每個願望都實現",
+  anniversary: "又一起走過了一年，往後的每一年都想和你一起過",
+  love: "我想大聲告訴你，我愛你",
+  wedding: "從今天起，我們牽手走過每一個明天",
+  mother: "媽媽，謝謝你，母親節快樂",
+  father: "爸爸，謝謝你，父親節快樂",
+  thanks: "真心謝謝你為我做的一切",
+  missyou: "我好想你，好想再見到你",
+  sorry: "對不起，讓你難過了，我會好好珍惜你",
+  graduation: "恭喜畢業，帶著勇氣去追你的夢",
+  memorial: "你一直活在我的心裡，從來沒有離開",
+  milestone: "這一刻值得被記住，為你感到驕傲",
+};
+function relGroup(rel) {
+  if (/老婆|老公|另一半|女朋友|男朋友|太太|先生|愛人/.test(rel)) return "lover";
+  if (/媽|爸|奶奶|爺爺|外婆|外公|阿嬤|阿公/.test(rel)) return "parent";
+  if (/女兒|兒子|孩子|寶貝/.test(rel)) return "child";
+  if (/姊|姐|妹|哥|弟|兄|家人/.test(rel)) return "family";
+  return "friend";
+}
+function autoStory(d) {
+  const g = d.occasion === "mother" || d.occasion === "father" ? "parent"
+    : (["love", "wedding", "anniversary"].includes(d.occasion) && !d.relation) ? "lover" : relGroup(d.relation || "");
+  const key = [g, d.occasion, d.recipient, d.relation, d.style, d.vocal, d.mood, d.length].join("|");
+  if (d._storyKey === key && d.q_person) return;
+  // 對象或風格改了：重新產生故事素材，歌詞也要重寫
+  const b = STORY_BANK[g];
+  const pick = (arr, k) => [...arr].sort(() => Math.random() - 0.5).slice(0, k).join("；");
+  d.q_person = pick(b.person, 2);
+  d.q_memory = pick(b.memory, 2);
+  d.q_detail = pick(b.detail, 1);
+  d.q_message = (OCCASION_MSG[d.occasion] || "") + "；" + pick(b.message, 1);
+  d.q_words = "";
+  d._storyKey = key;
+  d.lyrics = ""; d.title = ""; d.styleTags = "";
 }
 
 function stepLyrics(d) {
   const hasClaude = !!getSettings().claudeKey;
   if (!d.lyrics) {
     return `<h2>產生歌詞</h2><div id="lyricsBox">
-      <p class="muted">${hasClaude ? "AI 作詞人會依照你的故事寫出原創歌詞。" : "目前沒有設定 Claude 金鑰，會用內建範本產生歌詞，之後可自行修改。"}</p>
+      <p class="muted">${hasClaude ? "AI 作詞人會依照對象和場合寫出原創歌詞。" : "目前沒有設定 Claude 金鑰，會用內建範本產生歌詞，之後可自行修改。"}</p>
       <button class="btn" id="genLyrics">✍️ 產生歌詞</button></div>`;
   }
   return `

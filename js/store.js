@@ -33,7 +33,7 @@ export function saveSettings(patch) {
   return s;
 }
 
-const DRAFT = "sfy.draft.v1";
+const DRAFT = "sfy.draft.v2";
 export function getDraft() {
   try { return JSON.parse(localStorage.getItem(DRAFT)) || null; } catch { return null; }
 }
