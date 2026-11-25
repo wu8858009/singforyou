@@ -4,6 +4,8 @@ import {
   startAce, pollAce, aceStatus, aceBase,
 } from "./engine.js";
 import { synthSong } from "./synth.js";
+import { applyBrand, pageTitle, brand, brandName, brandSettingsHtml, bindBrandSettings, drawWatermark, loadImage, watermark } from "./brand.js";
+import { mvPanelHtml, bindMvPanel } from "./mv.js";
 import {
   getSettings, saveSettings, getDraft, saveDraft, uid, listSongs, getSong, putSong, deleteSong,
   putBlob, getBlob, exportAll, importAll,
@@ -45,7 +47,7 @@ window.addEventListener("hashchange", route);
 
 // ───────────────── 首頁 ─────────────────
 function renderHome() {
-  document.title = "為你而唱 · 把你們的故事寫成一首歌";
+  document.title = `${brandName()} · 把你們的故事寫成一首歌`;
   view.innerHTML = `
   <section class="hero">
     <div>
@@ -121,7 +123,7 @@ function newDraft(occasion) {
 }
 
 function renderCreate(occArg) {
-  document.title = "製作我的歌 · 為你而唱";
+  document.title = pageTitle("製作我的歌");
   let d = getDraft();
   if (!d || (occArg && d.step === 0 && !d.recipient)) d = newDraft(occArg);
   else if (occArg && OCCASIONS.some((o) => o.key === occArg) && d.step === 0) d.occasion = occArg;
@@ -663,7 +665,7 @@ async function renderSong(id) {
     const o = song.order;
     const st = styleByKey(o.style);
     const oc = occasionByKey(o.occasion);
-    document.title = `${v.title} · 為你而唱`;
+    document.title = pageTitle(v.title);
     const playable = v.tracks.filter((t) => t.blobKey || t.audioUrl || t.streamUrl);
     if (sel >= playable.length) sel = 0;
     const verBar = song.versions.length > 1 ? `<div class="versions">${song.versions.map((x, i) => `<button data-ver="${i}" class="${i === song.current ? "on" : ""}">第 ${x.n} 版 ${badge(x)}</button>`).join("")}</div>` : "";
@@ -715,7 +717,8 @@ async function renderSong(id) {
         </div>
         ${playable.length > 1 ? `<div class="versions center">${playable.map((x, i) => `<button data-tsel="${i}" class="${i === sel ? "on" : ""}">版本 ${String.fromCharCode(65 + i)}</button>`).join("")}</div>` : ""}
         <div class="row center" style="margin:16px 0 6px">
-          <button class="btn btn-sm" id="card">🖼 下載歌詞卡</button>
+          <button class="btn btn-sm" id="mvBtn">🎬 製作 MV</button>
+          <button class="btn btn-ghost btn-sm" id="card">🖼 下載歌詞卡</button>
           ${navigator.share ? `<button class="btn btn-ghost btn-sm" id="share">📤 分享</button>` : ""}
           <button class="btn btn-ghost btn-sm" id="editVer">✏️ 修改重做</button>
         </div>
@@ -771,6 +774,20 @@ async function renderSong(id) {
       $(".dl", el).onclick = () => downloadTrack(song, v, t, Number(el.dataset.ti));
     });
 
+    const mvBtn = $("#mvBtn");
+    if (mvBtn) mvBtn.onclick = () => {
+      const p = $("#editPanel");
+      p.innerHTML = mvPanelHtml(v, esc);
+      p.scrollIntoView({ behavior: "smooth" });
+      const playable = v.tracks.filter((t) => t.blobKey || t.audioUrl);
+      bindMvPanel({ $, $$, song, v, toast, save: saveBig,
+        getAudio: async (i) => {
+          const t = playable[i] || playable[0];
+          if (!t) return null;
+          if (t.blobKey) return getBlob(t.blobKey);
+          const r = await fetch(t.audioUrl); if (!r.ok) throw new Error("音檔連結已失效（" + r.status + "）"); return r.blob();
+        } });
+    };
     const cardBtn = $("#card");
     if (cardBtn) cardBtn.onclick = () => lyricsCard(song, v);
     const shareBtn = $("#share");
@@ -892,6 +909,17 @@ function saveBlob(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   toast("已下載 " + name);
 }
+async function saveBig(blob, name) {
+  if (isDesktop() && window.pywebview.api.save_temp) {
+    const r = await fetch("/upload-temp", { method: "POST", body: blob });
+    if (!r.ok) return toast("存檔失敗（" + r.status + "）", true);
+    const { id } = await r.json();
+    const res = await window.pywebview.api.save_temp(id, name);
+    if (res && res.ok) toast("已儲存到：" + res.path); else if (!(res && res.cancelled)) toast("存檔失敗：" + (res && res.error), true);
+    return;
+  }
+  return saveBlob(blob, name);
+}
 const blobToB64 = (b) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = rej; r.readAsDataURL(b); });
 
 async function shareSong(song, v) {
@@ -914,15 +942,17 @@ async function lyricsCard(song, v) {
   const g = c.getContext("2d");
   await document.fonts.ready;
   const bg = g.createLinearGradient(0, 0, W, H);
-  bg.addColorStop(0, "#2a1640"); bg.addColorStop(0.6, "#4a1f52"); bg.addColorStop(1, "#7a2e55");
+  const B = brand();
+  bg.addColorStop(0, "#1e1230"); bg.addColorStop(0.6, "#2e1a44"); bg.addColorStop(1, B.c1);
   g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  g.fillStyle = "rgba(14,8,26,.45)"; g.fillRect(0, 0, W, H); // 壓暗，讓任何品牌色都看得清楚文字
   // 裝飾圓
-  g.globalAlpha = 0.12; g.fillStyle = "#ffc46b";
+  g.globalAlpha = 0.12; g.fillStyle = B.c2;
   g.beginPath(); g.arc(W - 120, 140, 260, 0, 7); g.fill();
   g.beginPath(); g.arc(80, H - 120, 200, 0, 7); g.fill();
   g.globalAlpha = 1;
   g.textAlign = "center";
-  g.fillStyle = "#ffc46b"; g.font = "500 34px 'Noto Sans TC', sans-serif";
+  g.fillStyle = B.c2; g.font = "500 34px 'Noto Sans TC', sans-serif";
   g.fillText(`${occasionByKey(song.order.occasion).name} · 給${song.order.recipient}`, W / 2, 130);
   g.fillStyle = "#fff"; g.font = "900 76px 'Noto Serif TC', serif";
   wrapText(g, v.title, W / 2, 230, W - 160, 90, 2);
@@ -936,19 +966,28 @@ async function lyricsCard(song, v) {
   g.fillStyle = "rgba(255,255,255,.92)"; g.font = "500 44px 'Noto Sans TC', sans-serif";
   let y = 420;
   for (const l of chorus) { y = wrapText(g, l, W / 2, y, W - 180, 66, 2) + 4; }
+  // 有浮水印時，底部內容往上移，避免和右下角浮水印重疊
+  const lift = watermark() ? 90 : 0;
   // QR
   const url = v.tracks.find((t) => t.audioUrl)?.audioUrl;
   if (url && window.qrcode) {
     const qr = window.qrcode(0, "M"); qr.addData(url); qr.make();
-    const n = qr.getModuleCount(), size = 260, cell = size / n, x0 = W / 2 - size / 2, y0 = H - 400;
+    const n = qr.getModuleCount(), size = 260, cell = size / n, x0 = W / 2 - size / 2, y0 = H - 400 - lift;
     g.fillStyle = "#fff"; roundRect(g, x0 - 24, y0 - 24, size + 48, size + 48, 24); g.fill();
     g.fillStyle = "#2a1030";
     for (let r = 0; r < n; r++) for (let col = 0; col < n; col++) if (qr.isDark(r, col)) g.fillRect(x0 + col * cell, y0 + r * cell, Math.ceil(cell), Math.ceil(cell));
     g.fillStyle = "rgba(255,255,255,.75)"; g.font = "400 28px 'Noto Sans TC', sans-serif";
-    g.fillText("掃描 QR Code 聆聽這首歌", W / 2, H - 82);
+    g.fillText("掃描 QR Code 聆聽這首歌", W / 2, H - 82 - lift);
   }
-  g.fillStyle = "rgba(255,255,255,.55)"; g.font = "400 26px 'Noto Sans TC', sans-serif";
-  g.fillText(song.order.sender ? `— ${song.order.sender}` : "為你而唱", W / 2, H - 36);
+  g.fillStyle = "rgba(255,255,255,.75)"; g.font = "500 30px 'Noto Sans TC', sans-serif";
+  g.fillText(song.order.sender ? `— ${song.order.sender}` : "", W / 2, H - 36 - lift);
+  // 左上角品牌 Logo＋名稱
+  const logo = await loadImage(B.logo || "icons/icon-192.png");
+  g.textAlign = "left"; g.fillStyle = "rgba(255,255,255,.85)"; g.font = "700 28px 'Noto Sans TC', sans-serif";
+  if (logo) g.drawImage(logo, 40, 34, 52, 52);
+  g.fillText(B.name, logo ? 104 : 40, 70);
+  g.textAlign = "center";
+  await drawWatermark(g, W, H, 1.3);
   c.toBlob((b) => saveBlob(b, `${safeName(v.title)}_歌詞卡.png`), "image/png");
 }
 function wrapText(g, text, x, y, maxW, lh, maxLines) {
@@ -964,7 +1003,7 @@ function roundRect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcT
 
 // ───────────────── 我的歌曲 ─────────────────
 async function renderSongs() {
-  document.title = "我的歌曲 · 為你而唱";
+  document.title = pageTitle("我的歌曲");
   const songs = await listSongs();
   const d = getDraft();
   view.innerHTML = `<div style="max-width:760px;margin:28px auto">
@@ -985,7 +1024,7 @@ async function renderSongs() {
 
 // ───────────────── 設定 ─────────────────
 function renderSettings() {
-  document.title = "設定 · 為你而唱";
+  document.title = pageTitle("設定");
   const s = getSettings();
   view.innerHTML = `<div class="settings">
     <h2>設定</h2>
@@ -1040,6 +1079,7 @@ function renderSettings() {
       </details>
       <div class="row"><button class="btn btn-ghost btn-sm" id="t-claude">測試連線</button><span id="t-claude-r" class="small muted"></span></div>
     </div>
+    ${brandSettingsHtml(esc)}
     <div class="card" style="margin-top:16px">
       <h3>💾 資料</h3>
       <label class="row small"><input type="checkbox" id="s-save" ${s.saveAudio ? "checked" : ""}> 完成後自動把音檔存在本機（服務的連結約 14 天後失效）</label>
@@ -1064,7 +1104,8 @@ function renderSettings() {
     claudeKey: $("#s-ck").value.trim(), claudeModel: $("#s-cm").value.trim() || "claude-opus-5-5", claudeBase: $("#s-cbase").value.trim(),
     saveAudio: $("#s-save").checked,
   });
-  $("#saveS").onclick = () => { saveSettings(collect()); toast("設定已儲存"); };
+  $("#saveS").onclick = () => { saveSettings(collect()); applyBrand(); toast("設定已儲存"); };
+  bindBrandSettings($, toast);
   const tester = (btn, out, fn) => { $(btn).onclick = async () => { saveSettings(collect()); $(out).textContent = "測試中…"; try { $(out).textContent = "✅ " + (await fn()); } catch (e) { $(out).textContent = "❌ " + (e.message || e); } }; };
   tester("#t-music", "#t-music-r", testMusicKey);
   tester("#t-ace", "#t-ace-r", async () => {
@@ -1095,6 +1136,7 @@ function renderSettings() {
 
 // ───────────────── 啟動 ─────────────────
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+applyBrand();
 recoverInterrupted().catch(() => {}).finally(() => { route(); kickPoller(); });
 window.addEventListener("beforeunload", (e) => { if (activeJobs.size) { e.preventDefault(); e.returnValue = ""; } });
 window.SFY = { listSongs, getSong, getSettings, saveSettings, pollAll };
