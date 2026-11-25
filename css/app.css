@@ -196,3 +196,9 @@ input[type=color]{width:46px;height:38px;border:1px solid var(--line);border-rad
 #toast.err{background:var(--err);color:#fff}
 .spinner{width:18px;height:18px;border:3px solid rgba(0,0,0,.2);border-top-color:#2a1030;border-radius:50%;animation:spin .8s linear infinite;display:inline-block}
 .hidden{display:none!important}
+
+.sty-h{margin:14px 0 8px;font-size:13px;font-weight:700;color:var(--gold);letter-spacing:.05em}
+.sty-h:first-child{margin-top:4px}
+[data-pick=style] .pick{grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px}
+[data-pick=style] .pick button{padding:8px 4px;font-size:13px;border-radius:12px}
+[data-pick=style] .pick button .e{font-size:20px}

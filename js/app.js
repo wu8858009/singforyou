@@ -1,5 +1,5 @@
 import {
-  STYLES, OCCASIONS, RELATIONS, LENGTHS, styleByKey, occasionByKey,
+  STYLES, STYLE_CATS, synthStyle, OCCASIONS, RELATIONS, LENGTHS, styleByKey, occasionByKey,
   generateLyrics, startSong, pollSong, STATUS_TEXT, testMusicKey, testClaudeKey, runAceStep, PROVIDERS,
   startAce, pollAce, aceStatus, aceBase,
 } from "./engine.js";
@@ -87,7 +87,7 @@ function renderHome() {
 
   <section class="block">
     <header><h2>12 種曲風任你挑</h2><p class="muted">從深情抒情到輕快童謠</p></header>
-    <div class="grid g4">${STYLES.map((s) => `<div class="card" style="padding:16px;text-align:center"><div style="font-size:30px">${s.emoji}</div><b>${s.name}</b></div>`).join("")}</div>
+    <div class="grid g4">${["ballad", "pop", "piano", "folk", "rnb", "taiwanese", "cantonese", "guofeng", "rock", "jazz", "kids"].map(styleByKey).map((s) => `<div class="card" style="padding:16px;text-align:center"><div style="font-size:30px">${s.emoji}</div><b>${s.name}</b></div>`).join("")}<a class="card" href="#/create" style="padding:16px;text-align:center;text-decoration:none;color:inherit"><div style="font-size:30px">🎶</div><b>還有 ${STYLES.length - 11} 種</b></a></div>
   </section>
 
   <section class="block" style="max-width:760px;margin:auto">
@@ -295,8 +295,9 @@ function stepStyle(d) {
   return `
     <h2>想要什麼樣的音樂？</h2>
     <div class="q"><span class="lbl">曲風</span>
-      <div class="pick" data-pick="style">
-        ${STYLES.map((s) => `<button type="button" data-v="${s.key}" class="${d.style === s.key ? "on" : ""}"><span class="e">${s.emoji}</span>${s.name}</button>`).join("")}
+      <p class="hint">共 ${STYLES.length} 種，依分類挑選</p>
+      <div data-pick="style">
+        ${STYLE_CATS.map((c, ci) => `<p class="sty-h">${c}</p><div class="pick">${STYLES.filter((s) => s.cat === ci).map((s) => `<button type="button" data-v="${s.key}" class="${d.style === s.key ? "on" : ""}"><span class="e">${s.emoji}</span>${s.name}</button>`).join("")}</div>`).join("")}
       </div></div>
     <div class="q"><span class="lbl">演唱人聲</span>
       <div class="seg" data-pick="vocal">
@@ -456,7 +457,7 @@ async function runFreeJob(songId, n) {
       await update({ progress: "正在合成版本 A…（每個版本約 20–60 秒）", status: "TEXT_SUCCESS" });
       outs = [];
       for (const variant of [0, 1]) {
-        const r = await synthSong({ style: s0.order.style, lyrics: v.lyrics, seconds: Number(v.length) || 120, variant, title: v.title });
+        const r = await synthSong({ style: synthStyle(s0.order.style), lyrics: v.lyrics, seconds: Number(v.length) || 120, variant, title: v.title });
         outs.push({ blob: r.blob, duration: r.duration });
         if (variant === 0) await update({ progress: "版本 A 完成，正在合成版本 B…", status: "FIRST_SUCCESS" });
       }
@@ -850,7 +851,7 @@ function openEdit(song, v) {
   const hasClaude = !!getSettings().claudeKey;
   p.innerHTML = `<div class="card" style="margin-top:12px">
     <h3>修改重做（會產生新的版本，舊版本保留）</h3>
-    <div class="q"><span class="lbl">曲風</span><select id="e-style">${STYLES.map((s) => `<option value="${s.key}" ${s.key === song.order.style ? "selected" : ""}>${s.emoji} ${s.name}</option>`).join("")}</select></div>
+    <div class="q"><span class="lbl">曲風</span><select id="e-style">${STYLE_CATS.map((c, ci) => `<optgroup label="${c}">${STYLES.filter((s) => s.cat === ci).map((s) => `<option value="${s.key}" ${s.key === song.order.style ? "selected" : ""}>${s.emoji} ${s.name}</option>`).join("")}</optgroup>`).join("")}</select></div>
     <div class="q"><span class="lbl">人聲</span><select id="e-vocal">${[["f", "女聲"], ["m", "男聲"], ["any", "讓 AI 決定"]].map(([k, n]) => `<option value="${k}" ${k === v.vocal ? "selected" : ""}>${n}</option>`).join("")}</select></div>
     <div class="q"><label for="e-title">歌名</label><input id="e-title" type="text" maxlength="80" value="${esc(v.title)}"></div>
     <div class="q"><label for="e-lyrics">歌詞</label><textarea id="e-lyrics" class="lyrics-edit" maxlength="5000">${esc(v.lyrics)}</textarea></div>

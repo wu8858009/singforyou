@@ -5,19 +5,81 @@ import { getSettings } from "./store.js";
 
 const SDK_URL = "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.8.0/+esm";
 
+// 曲風：cat 分類顯示；synth = 本機合成（純音樂）用哪一種伴奏；粵語曲風會用粵語演唱
+export const STYLE_CATS = ["華語熱門", "台灣在地・東方", "日韓・流行", "搖滾・嘻哈", "爵士・藍調・靈魂", "電子・舞曲", "世界音樂", "古典・影視・人聲", "節慶・特別"];
 export const STYLES = [
-  { key: "ballad", name: "華語抒情", emoji: "🌙", tags: "Mandopop ballad, emotional, piano, strings, warm" },
-  { key: "pop", name: "華語流行", emoji: "✨", tags: "Mandopop, upbeat pop, catchy chorus, modern production" },
-  { key: "folk", name: "民謠吉他", emoji: "🎸", tags: "acoustic folk, fingerpicked guitar, intimate, warm" },
-  { key: "rnb", name: "R&B", emoji: "💜", tags: "Chinese R&B, smooth, groovy, soulful" },
-  { key: "rock", name: "搖滾", emoji: "🔥", tags: "Mandarin pop rock, electric guitar, drums, anthemic" },
-  { key: "rap", name: "嘻哈饒舌", emoji: "🎤", tags: "Chinese hip hop, rap verses, melodic hook, boom bap" },
-  { key: "jazz", name: "爵士", emoji: "🎷", tags: "smooth jazz, soft brushes, upright bass, romantic" },
-  { key: "piano", name: "鋼琴抒情", emoji: "🎹", tags: "solo piano ballad, tender, cinematic, minimal" },
-  { key: "taiwanese", name: "台語歌", emoji: "🌊", tags: "Taiwanese Hokkien ballad, nostalgic, heartfelt" },
-  { key: "guofeng", name: "古風中國風", emoji: "🏮", tags: "Chinese traditional style, guzheng, erhu, poetic, cinematic" },
-  { key: "kids", name: "童趣兒歌", emoji: "🧸", tags: "children's song, cheerful, playful, simple melody, ukulele" },
-  { key: "edm", name: "電子舞曲", emoji: "🎧", tags: "EDM pop, dance, synth, energetic drop" },
+  // 華語熱門
+  { key: "ballad", cat: 0, name: "華語抒情", emoji: "🌙", tags: "Mandopop ballad, emotional, piano, strings, warm" },
+  { key: "pop", cat: 0, name: "華語流行", emoji: "✨", tags: "Mandopop, upbeat pop, catchy chorus, modern production" },
+  { key: "piano", cat: 0, name: "鋼琴抒情", emoji: "🎹", tags: "solo piano ballad, tender, cinematic, minimal" },
+  { key: "folk", cat: 0, name: "民謠吉他", emoji: "🎸", tags: "acoustic folk, fingerpicked guitar, intimate, warm" },
+  { key: "rnb", cat: 0, name: "R&B", emoji: "💜", tags: "Chinese R&B, smooth, groovy, soulful" },
+  { key: "campus", cat: 0, name: "校園民歌", emoji: "🍃", tags: "1970s Taiwanese campus folk song, acoustic guitar, harmonica, innocent, nostalgic", synth: "folk" },
+  { key: "oldies", cat: 0, name: "復古老歌", emoji: "📻", tags: "1980s Mandopop classic, retro, analog synth, saxophone, nostalgic", synth: "ballad" },
+  { key: "indie", cat: 0, name: "獨立樂團", emoji: "🎒", tags: "Taiwanese indie band, jangly guitars, live drums, youthful, sincere", synth: "rock" },
+  { key: "duet", cat: 0, name: "男女對唱", emoji: "👫", tags: "Mandopop duet, male and female vocals, romantic ballad, piano and strings", synth: "ballad" },
+  // 台灣在地・東方
+  { key: "taiwanese", cat: 1, name: "台語歌", emoji: "🌊", tags: "Taiwanese Hokkien ballad, nostalgic, heartfelt" },
+  { key: "nakasi", cat: 1, name: "台語那卡西", emoji: "🪗", tags: "Taiwanese nakasi, enka style, accordion, electric organ, sentimental", synth: "ballad" },
+  { key: "hakka", cat: 1, name: "客家山歌風", emoji: "⛰️", tags: "Hakka folk song style, bamboo flute, acoustic, pastoral, warm", synth: "folk" },
+  { key: "indigenous", cat: 1, name: "原住民風", emoji: "🌄", tags: "Taiwanese indigenous folk style, group chant, hand percussion, open harmony, joyful", synth: "folk" },
+  { key: "cantonese", cat: 1, name: "粵語流行", emoji: "🌃", tags: "Cantopop ballad, Cantonese vocals, Hong Kong 90s, piano, strings", synth: "ballad" },
+  { key: "guofeng", cat: 1, name: "古風中國風", emoji: "🏮", tags: "Chinese traditional style, guzheng, erhu, poetic, cinematic" },
+  { key: "guofeng_rock", cat: 1, name: "國風搖滾", emoji: "🐉", tags: "Chinese folk rock, erhu and electric guitar, pipa, powerful drums", synth: "rock" },
+  // 日韓・流行
+  { key: "jpop", cat: 2, name: "日系流行", emoji: "🌸", tags: "J-pop, bright, energetic, piano and guitar, emotional chorus", synth: "pop" },
+  { key: "anime", cat: 2, name: "動漫主題曲", emoji: "🗾", tags: "anime opening theme, fast tempo, soaring vocals, electric guitar, epic", synth: "rock" },
+  { key: "citypop", cat: 2, name: "City Pop", emoji: "🌆", tags: "80s Japanese city pop, funky bass, electric piano, groovy, nostalgic", synth: "pop" },
+  { key: "kpop", cat: 2, name: "韓流 K-Pop", emoji: "💫", tags: "K-pop, polished production, dance beat, catchy hook, synth bass", synth: "edm" },
+  { key: "kballad", cat: 2, name: "韓劇 OST", emoji: "🎞️", tags: "Korean drama OST ballad, emotional, piano, strings, building climax", synth: "ballad" },
+  { key: "synthpop", cat: 2, name: "80 年代合成器", emoji: "🕹️", tags: "80s synthpop, retro synthesizers, gated drums, dreamy", synth: "edm" },
+  { key: "lofi", cat: 2, name: "Lo-fi 慵懶", emoji: "☕", tags: "lo-fi pop, chill, mellow beat, warm vinyl texture, soft vocals", synth: "jazz" },
+  { key: "dreampop", cat: 2, name: "夢幻流行", emoji: "🫧", tags: "dream pop, reverb guitars, airy vocals, ethereal, soft", synth: "piano" },
+  // 搖滾・嘻哈
+  { key: "rock", cat: 3, name: "搖滾", emoji: "🔥", tags: "Mandarin pop rock, electric guitar, drums, anthemic" },
+  { key: "altrock", cat: 3, name: "另類搖滾", emoji: "🌀", tags: "alternative rock, distorted guitars, dynamic, emotional", synth: "rock" },
+  { key: "punk", cat: 3, name: "龐克", emoji: "⚡", tags: "pop punk, fast, energetic, power chords, shout-along chorus", synth: "rock" },
+  { key: "metal", cat: 3, name: "金屬", emoji: "🤘", tags: "melodic metal, heavy guitars, double kick drums, powerful", synth: "rock" },
+  { key: "rap", cat: 3, name: "嘻哈饒舌", emoji: "🎤", tags: "Chinese hip hop, rap verses, melodic hook, boom bap" },
+  { key: "trap", cat: 3, name: "Trap", emoji: "🔊", tags: "trap, 808 bass, hi-hat rolls, melodic rap, modern", synth: "edm" },
+  { key: "reggae", cat: 3, name: "雷鬼", emoji: "🌴", tags: "reggae, offbeat guitar skank, laid-back groove, sunny", synth: "folk" },
+  // 爵士・藍調・靈魂
+  { key: "jazz", cat: 4, name: "爵士", emoji: "🎷", tags: "smooth jazz, soft brushes, upright bass, romantic" },
+  { key: "swing", cat: 4, name: "搖擺爵士", emoji: "🎩", tags: "swing jazz, big band, brass section, upbeat, playful", synth: "jazz" },
+  { key: "bossa", cat: 4, name: "巴薩諾瓦", emoji: "🍹", tags: "bossa nova, nylon guitar, soft percussion, gentle, breezy", synth: "jazz" },
+  { key: "blues", cat: 4, name: "藍調", emoji: "🎺", tags: "blues, slide guitar, shuffle rhythm, soulful", synth: "jazz" },
+  { key: "soul", cat: 4, name: "靈魂樂", emoji: "🕯️", tags: "classic soul, Motown, horns, warm vocals, groovy", synth: "rnb" },
+  { key: "funk", cat: 4, name: "放克", emoji: "🕺", tags: "funk, slap bass, wah guitar, tight groove, horns", synth: "rnb" },
+  { key: "gospel", cat: 4, name: "福音詩歌", emoji: "⛪", tags: "gospel, choir, organ, uplifting, hopeful", synth: "ballad" },
+  // 電子・舞曲
+  { key: "edm", cat: 5, name: "電子舞曲", emoji: "🎧", tags: "EDM pop, dance, synth, energetic drop" },
+  { key: "house", cat: 5, name: "House", emoji: "🏠", tags: "deep house, four on the floor, warm bass, chill groove", synth: "edm" },
+  { key: "futurebass", cat: 5, name: "Future Bass", emoji: "🌈", tags: "future bass, lush supersaw chords, bright, emotional drop", synth: "edm" },
+  { key: "disco", cat: 5, name: "迪斯可", emoji: "🪩", tags: "disco, funky bass, strings, four on the floor, joyful", synth: "edm" },
+  { key: "chiptune", cat: 5, name: "8-bit 電玩", emoji: "👾", tags: "chiptune, 8-bit video game music, playful, bright", synth: "edm" },
+  // 世界音樂
+  { key: "latin", cat: 6, name: "拉丁", emoji: "💃", tags: "Latin pop, reggaeton rhythm, Spanish guitar, festive", synth: "pop" },
+  { key: "tango", cat: 6, name: "探戈", emoji: "🌹", tags: "tango, bandoneon, violin, dramatic, passionate", synth: "jazz" },
+  { key: "flamenco", cat: 6, name: "佛朗明哥", emoji: "🔴", tags: "flamenco guitar, handclaps, passionate, Spanish", synth: "folk" },
+  { key: "country", cat: 6, name: "鄉村", emoji: "🤠", tags: "country pop, acoustic guitar, banjo, warm storytelling", synth: "folk" },
+  { key: "celtic", cat: 6, name: "愛爾蘭風", emoji: "☘️", tags: "Celtic folk, tin whistle, fiddle, uplifting", synth: "folk" },
+  { key: "hawaiian", cat: 6, name: "夏威夷", emoji: "🌺", tags: "Hawaiian, ukulele, slack key guitar, relaxed, sunny", synth: "kids" },
+  { key: "french", cat: 6, name: "法式香頌", emoji: "🥐", tags: "French chanson, accordion, waltz, romantic, Parisian", synth: "jazz" },
+  // 古典・影視・人聲
+  { key: "orchestral", cat: 7, name: "交響管弦", emoji: "🎻", tags: "orchestral pop, full orchestra, strings and brass, grand", synth: "piano" },
+  { key: "cinematic", cat: 7, name: "電影配樂", emoji: "🎬", tags: "cinematic ballad, epic strings, piano, emotional build", synth: "piano" },
+  { key: "musical", cat: 7, name: "音樂劇", emoji: "🎭", tags: "Broadway musical theatre, piano, orchestra, theatrical vocals", synth: "piano" },
+  { key: "crossover", cat: 7, name: "美聲跨界", emoji: "🎼", tags: "classical crossover, operatic vocals, orchestra, majestic", synth: "piano" },
+  { key: "acappella", cat: 7, name: "無伴奏人聲", emoji: "🗣️", tags: "a cappella, vocal harmonies, beatbox, choir, no instruments", synth: "piano" },
+  { key: "chamber", cat: 7, name: "弦樂室內樂", emoji: "🪕", tags: "string quartet, chamber pop, cello and violin, elegant", synth: "piano" },
+  // 節慶・特別
+  { key: "kids", cat: 8, name: "童趣兒歌", emoji: "🧸", tags: "children's song, cheerful, playful, simple melody, ukulele" },
+  { key: "lullaby", cat: 8, name: "搖籃曲", emoji: "🍼", tags: "lullaby, music box, soft, gentle, soothing", synth: "piano" },
+  { key: "weddingsong", cat: 8, name: "婚禮浪漫", emoji: "💒", tags: "romantic wedding song, strings, piano, bells, heartfelt", synth: "ballad" },
+  { key: "christmas", cat: 8, name: "聖誕歌", emoji: "🎄", tags: "Christmas pop, sleigh bells, warm, festive", synth: "pop" },
+  { key: "newyear", cat: 8, name: "新年賀歲", emoji: "🧧", tags: "Chinese New Year song, festive, gongs, suona, cheerful", synth: "guofeng" },
+  { key: "birthdayparty", cat: 8, name: "生日派對", emoji: "🎉", tags: "happy birthday party pop, upbeat, claps, celebratory", synth: "pop" },
+  { key: "march", cat: 8, name: "勵志進行曲", emoji: "🏁", tags: "inspirational anthem, marching drums, brass, uplifting", synth: "rock" },
 ];
 
 export const OCCASIONS = [
@@ -45,6 +107,10 @@ export const LENGTHS = [
 ];
 
 export const styleByKey = (k) => STYLES.find((s) => s.key === k) || STYLES[0];
+// 本機合成只有 12 種伴奏：新曲風對應到最接近的那一種
+export const synthStyle = (k) => { const s = styleByKey(k); return s.synth || s.key; };
+// AI 演唱語言：粵語曲風用 yue，其餘華語
+export const vocalLang = (tags) => /Cantonese|Cantopop/i.test(tags || "") ? "yue" : "zh";
 export const occasionByKey = (k) => OCCASIONS.find((o) => o.key === k) || OCCASIONS[0];
 
 // ───────────────────────── 歌詞 ─────────────────────────
@@ -62,7 +128,7 @@ const LYRICS_SCHEMA = {
 
 const SYSTEM_PROMPT = `你是台灣的專業華語作詞人，專門為客製化禮物歌曲寫詞。
 規則：
-- 一律使用台灣繁體中文與台灣慣用語（台語歌則用台語漢字，必要時可混華語）。
+- 一律使用台灣繁體中文與台灣慣用語（台語歌則用台語漢字，必要時可混華語；粵語曲風用粵語口語寫詞，例如「係」「嘅」「唔」「佢」）。
 - 結構：[Intro]（可省略）、[Verse 1]、[Pre-Chorus]、[Chorus]、[Verse 2]、[Pre-Chorus]、[Chorus]、[Bridge]、[Final Chorus]、[Outro]。段落標籤用英文方括號，獨立一行。
 - 每句 7–14 字，好唱、押韻自然（副歌務必押韻），副歌要有一句容易記住、重複出現的主題句。
 - 這是一首「送給別人的禮物歌」：用送禮者第一人稱「我」對收禮人說話，從頭到尾視角一致；收禮人是女生時用「妳」，男生用「你」。
@@ -714,7 +780,7 @@ export async function runAceStep(v, onStatus) {
     simple_query_input: "",
     param_4: (v.styleTags || "").slice(0, 500),
     param_5: lyrics.slice(0, 4000),
-    param_9: "zh",
+    param_9: vocalLang(v.styleTags),
     param_14: null,
     param_15: Math.min(Number(v.length) || 120, 240),
     param_16: 2,
@@ -794,7 +860,7 @@ export async function startAce(v) {
   const j = await aceFetch("/release_task", {
     prompt: (/(fe)?male vocal/i.test(style) ? style : style + vocal).slice(0, 500),
     lyrics: lyrics.slice(0, 4000),
-    vocal_language: "zh",
+    vocal_language: vocalLang(v.styleTags),
     audio_duration: Math.min(Number(v.length) || 120, 240),
     batch_size: 1,
     audio_format: "mp3",
