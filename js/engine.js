@@ -88,6 +88,10 @@ function briefFromOrder(o) {
   const lines = [
     `收禮對象：${o.recipient}（${o.relation || "關係未指定"}；性別：${isFemale(o) ? "女生，用「妳」" : o.gender === "m" || /爸|老公|先生|男朋友|兒子|哥|弟|爺爺|外公|阿公/.test(o.relation || "") ? "男生，用「你」" : "未指定，用「你」"}）`,
     `送禮者署名：${o.sender || "（未填）"}`,
+    ...(parseWeddingDate(o.weddingDate) && ["wedding", "anniversary"].includes(o.occasion) ? (() => {
+      const w = parseWeddingDate(o.weddingDate);
+      return [`結婚日期：${w.text}${w.zhYears ? `（到今天結婚滿 ${w.years} 年）` : ""}——一定要在歌詞裡唱出這個日期${w.zhYears && o.occasion === "anniversary" ? "和結婚的年數" : ""}，日期與數字一律寫成國字（例如「${w.zh}」${w.zhYears ? `、「${w.zhYears}年」` : ""}），不要用阿拉伯數字`];
+    })() : []),
     `場合：${oc.name}（主題重點：${relGroupOf(o.relation, oc.key) !== "lover" && PLATONIC_THEME[oc.key] ? PLATONIC_THEME[oc.key] : (OCC_LYRICS[oc.key] || {}).theme || oc.name}）——整首歌一定要圍繞這個場合，副歌要直接唱出這個場合的祝福或心意`,
     `兩人關係：${relGroupOf(o.relation, oc.key) === "lover" ? "情侶／夫妻（可以寫愛情）" : "不是情侶（只能寫友情、親情或祝福，不能寫成愛情）"}`,
     `曲風：${st.name}（參考英文風格：${st.tags}）`,
@@ -554,6 +558,44 @@ const BRIDGE_NON_LOVER_ALT = {
 };
 const pickOne = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
+// ── 結婚年月日：轉成國字讓 AI 唱得出來（數字容易被唸成英文或亂唸） ──
+const ZH_D = "〇一二三四五六七八九";
+function zhNum(n) { // 1–99
+  if (n < 10) return ZH_D[n];
+  const t = Math.floor(n / 10), u = n % 10;
+  return (t === 1 ? "" : ZH_D[t]) + "十" + (u ? ZH_D[u] : "");
+}
+export function parseWeddingDate(s) {
+  const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = +m[1], mo = +m[2], d = +m[3];
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const now = new Date();
+  let years = now.getFullYear() - y;
+  if (now.getMonth() + 1 < mo || (now.getMonth() + 1 === mo && now.getDate() < d)) years--;
+  return {
+    y, mo, d, years,
+    zh: [...String(y)].map((c) => ZH_D[+c]).join("") + "年" + zhNum(mo) + "月" + zhNum(d) + "日",
+    zhYears: years >= 1 && years < 100 ? zhNum(years) : "",
+    text: `${y}年${mo}月${d}日`,
+  };
+}
+// 依場合與關係產生唱日期的兩到四句
+function weddingDateLines(o, lover) {
+  const w = parseWeddingDate(o.weddingDate);
+  if (!w) return [];
+  if (o.occasion === "wedding") {
+    return lover ? [w.zh, "是我們說好一輩子的日子"] : [w.zh, "是你走向幸福的日子"];
+  }
+  if (o.occasion === "anniversary") {
+    if (w.years < 0) return [w.zh, lover ? "是我們最重要的日子" : "是你最重要的日子"];
+    const head = lover ? [w.zh, "是我們結婚的那一天"] : [w.zh, "是你結婚的那一天"];
+    if (!w.zhYears) return head;
+    return [...head, `一轉眼已經${w.zhYears}年`, lover ? "我對你的愛只多不少" : "祝你們永遠幸福"];
+  }
+  return [];
+}
+
 // 沒有 Claude 金鑰時的內建範本詞（可再手動修改）。每次隨機組合，並避免和上一版一模一樣
 export function templateLyrics(o) {
   let r;
@@ -611,6 +653,7 @@ function templateOnce(o) {
     ...L.chorus.map(f),
     "",
     "[Bridge]",
+    ...weddingDateLines(o, group === "lover"),
     ...(o.q_words ? [o.q_words, bridge[1]] : bridge).map(f),
     "",
     "[Final Chorus]",

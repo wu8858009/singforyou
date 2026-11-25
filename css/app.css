@@ -78,8 +78,9 @@ details.faq p{margin:0 0 14px;color:var(--ink2)}
 .q{margin-bottom:20px}
 .q>label,.q>.lbl{display:block;font-weight:700;margin-bottom:8px}
 .q .hint{font-size:13px;color:var(--ink3);margin:-4px 0 8px}
-input[type=text],input[type=password],input[type=url],textarea,select{width:100%;background:#1a0f2c;border:1px solid var(--line);border-radius:12px;padding:12px 14px;color:var(--ink);font:inherit;font-size:16px}
+input[type=text],input[type=password],input[type=url],input[type=date],textarea,select{width:100%;background:#1a0f2c;border:1px solid var(--line);border-radius:12px;padding:12px 14px;color:var(--ink);font:inherit;font-size:16px}
 textarea{min-height:96px;resize:vertical}
+input[type=date]{color-scheme:dark;max-width:260px}
 input:focus,textarea:focus,select:focus{outline:2px solid var(--gold);outline-offset:1px;border-color:transparent}
 .pick{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
 .pick button{background:#1a0f2c;border:1px solid var(--line);color:var(--ink);border-radius:14px;padding:12px 8px;font:inherit;font-size:15px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}

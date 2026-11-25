@@ -151,7 +151,9 @@ function renderCreate(occArg) {
     const card = $("#wcard");
     // 文字欄位雙向綁定
     $$("[data-f]", card).forEach((el) => {
-      el.addEventListener("input", () => { d[el.dataset.f] = el.value; save(); if (el.dataset.f === "lyrics") updNext(); });
+      const upd = () => { d[el.dataset.f] = el.value; save(); if (el.dataset.f === "lyrics") updNext(); };
+      el.addEventListener("input", upd);
+      if (el.type === "date") el.addEventListener("change", upd);
     });
     $$("[data-pick]", card).forEach((grp) => {
       grp.addEventListener("click", (e) => {
@@ -166,6 +168,7 @@ function renderCreate(occArg) {
           $$("[data-pick=relation] button").forEach((x) => x.classList.toggle("on", x.dataset.v === d.relation));
         }
         if (grp.dataset.pick === "relation") { const c = $("#relCustom"); if (c) c.value = ""; }
+        if (grp.dataset.pick === "occasion") { const w = $("#wdBox"); if (w) w.classList.toggle("hidden", !WD_OCC.includes(v)); }
       });
     });
     const rc = $("#relCustom");
@@ -231,6 +234,7 @@ function renderCreate(occArg) {
         id, createdAt: Date.now(),
         order: {
           recipient: d.recipient, relation: d.relation, gender: d.gender || "", sender: d.sender, occasion: d.occasion, style: d.style,
+          weddingDate: WD_OCC.includes(d.occasion) ? d.weddingDate || "" : "",
           vocal: d.vocal, mood: d.mood, length: d.length,
           q_person: d.q_person, q_memory: d.q_memory, q_detail: d.q_detail, q_message: d.q_message, q_words: d.q_words,
         },
@@ -257,6 +261,7 @@ function renderCreate(occArg) {
   draw();
 }
 
+const WD_OCC = ["wedding", "anniversary"];
 function stepWho(d) {
   const rels = RELATIONS.includes(d.relation) ? d.relation : "";
   return `
@@ -273,6 +278,9 @@ function stepWho(d) {
       <div class="pick" data-pick="occasion">
         ${OCCASIONS.map((o) => `<button type="button" data-v="${o.key}" class="${d.occasion === o.key ? "on" : ""}"><span class="e">${o.emoji}</span>${o.name}</button>`).join("")}
       </div></div>
+    <div class="q ${WD_OCC.includes(d.occasion) ? "" : "hidden"}" id="wdBox"><label for="f-wd">💍 結婚年月日（選填）</label>
+      <p class="hint">填了會唱進歌詞裡，例如「二〇二六年五月二十日」；週年紀念還會算出結婚幾年</p>
+      <input id="f-wd" type="date" data-f="weddingDate" value="${esc(d.weddingDate || "")}" max="2100-12-31"></div>
     <div class="q"><span class="lbl">對方是</span>
       <p class="hint">決定歌詞用「妳」還是「你」</p>
       <div class="seg" data-pick="gender">
@@ -357,7 +365,7 @@ function relGroup(rel) {
 function autoStory(d) {
   const g = d.occasion === "mother" || d.occasion === "father" ? "parent"
     : (["love", "wedding", "anniversary"].includes(d.occasion) && !d.relation) ? "lover" : relGroup(d.relation || "");
-  const key = [g, d.occasion, d.recipient, d.relation, d.gender, d.sender, d.style, d.vocal, d.mood, d.length].join("|");
+  const key = [g, d.occasion, d.recipient, d.relation, d.gender, d.sender, WD_OCC.includes(d.occasion) ? d.weddingDate : "", d.style, d.vocal, d.mood, d.length].join("|");
   if (d._storyKey === key && d.q_person) return;
   // 對象或風格改了：重新產生故事素材，歌詞也要重寫
   const b = STORY_BANK[g];
@@ -669,7 +677,7 @@ async function renderSong(id) {
     const playable = v.tracks.filter((t) => t.blobKey || t.audioUrl || t.streamUrl);
     if (sel >= playable.length) sel = 0;
     const verBar = song.versions.length > 1 ? `<div class="versions">${song.versions.map((x, i) => `<button data-ver="${i}" class="${i === song.current ? "on" : ""}">第 ${x.n} 版 ${badge(x)}</button>`).join("")}</div>` : "";
-    const meta = `<p class="tiny final-meta">${oc.emoji} ${oc.name}${o.relation ? ` · 給${esc(o.relation)}` : ""}${o.sender ? ` · 來自 ${esc(o.sender)}` : ""}${v.provider ? ` · ${esc(PROVIDERS[v.provider]?.short || v.provider)}${v.provider === "local" ? "（純音樂）" : ""}` : ""}</p>`;
+    const meta = `<p class="tiny final-meta">${oc.emoji} ${oc.name}${o.relation ? ` · 給${esc(o.relation)}` : ""}${o.sender ? ` · 來自 ${esc(o.sender)}` : ""}${o.weddingDate ? ` · 💍 ${esc(o.weddingDate.replaceAll("-", "."))}` : ""}${v.provider ? ` · ${esc(PROVIDERS[v.provider]?.short || v.provider)}${v.provider === "local" ? "（純音樂）" : ""}` : ""}</p>`;
     let body = "";
     if (RUNNING.has(v.status) && !playable.length) {
       // ── 等待頁：你的歌曲正在誕生 ──
@@ -953,7 +961,7 @@ async function lyricsCard(song, v) {
   g.globalAlpha = 1;
   g.textAlign = "center";
   g.fillStyle = B.c2; g.font = "500 34px 'Noto Sans TC', sans-serif";
-  g.fillText(`${occasionByKey(song.order.occasion).name} · 給${song.order.recipient}`, W / 2, 130);
+  g.fillText(`${occasionByKey(song.order.occasion).name} · 給${song.order.recipient}${song.order.weddingDate ? " · " + song.order.weddingDate.replaceAll("-", ".") : ""}`, W / 2, 130);
   g.fillStyle = "#fff"; g.font = "900 76px 'Noto Serif TC', serif";
   wrapText(g, v.title, W / 2, 230, W - 160, 90, 2);
   // 取副歌
