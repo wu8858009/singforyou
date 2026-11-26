@@ -1,5 +1,5 @@
 import {
-  STYLES, STYLE_CATS, synthStyle, OCCASIONS, RELATIONS, LENGTHS, styleByKey, occasionByKey,
+  STYLES, STYLE_CATS, synthStyle, fitLyrics, singSeconds, OCCASIONS, RELATIONS, LENGTHS, styleByKey, occasionByKey,
   generateLyrics, startSong, pollSong, STATUS_TEXT, testMusicKey, testClaudeKey, runAceStep, PROVIDERS,
   startAce, pollAce, aceStatus, aceBase,
 } from "./engine.js";
@@ -414,6 +414,11 @@ async function submitVersion(v) {
   const s = getSettings();
   v.provider = s.provider || "hf";
   v.vocalGender = v.vocal;
+  // 歌詞比歌曲長度多：自動精簡，避免 AI 唱不完而跳句（sunoapi 會自己調整長度，不用處理）
+  if (v.provider !== "suno") {
+    const fit = fitLyrics(v.lyrics, v.length);
+    if (fit !== v.lyrics) { v.lyrics = fit; toast("歌詞比歌曲長度多，已自動精簡（避免 AI 跳句）。想保留全部可以選更長的歌曲長度。"); }
+  }
   if (v.provider === "suno") {
     if (!s.musicKey) throw new Error("你選的是付費的 sunoapi.org，但還沒填 API 金鑰。請到「設定」填寫，或改選免費的產生方式。");
     v.taskId = await startSong(v);

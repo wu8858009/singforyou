@@ -130,7 +130,7 @@ const SYSTEM_PROMPT = `你是台灣的專業華語作詞人，專門為客製化
 規則：
 - 一律使用台灣繁體中文與台灣慣用語（台語歌則用台語漢字，必要時可混華語；粵語曲風用粵語口語寫詞，例如「係」「嘅」「唔」「佢」）。
 - 結構：[Intro]（可省略）、[Verse 1]、[Pre-Chorus]、[Chorus]、[Verse 2]、[Pre-Chorus]、[Chorus]、[Bridge]、[Final Chorus]、[Outro]。段落標籤用英文方括號，獨立一行。
-- 每句 7–14 字，好唱、押韻自然（副歌務必押韻），副歌要有一句容易記住、重複出現的主題句。
+- 每句 6–10 字（AI 歌手每句 6–10 字最不會跳句），同一段各句字數接近，好唱、押韻自然（副歌務必押韻），副歌要有一句容易記住、重複出現的主題句。
 - 這是一首「送給別人的禮物歌」：用送禮者第一人稱「我」對收禮人說話，從頭到尾視角一致；收禮人是女生時用「妳」，男生用「你」。
 - 語氣要符合兩人的關係：只有情侶／夫妻才寫戀愛的句子，對家人、朋友、長輩要用親情或友情的語氣。
 - 特別注意：收禮人不是送禮者的另一半時，「婚禮」要寫成送禮者祝福對方新婚（例如「新婚快樂、祝你們白頭偕老」），絕對不能寫成送禮者自己要和對方結婚、說「我願意」；「我愛你」「週年紀念」也要寫成友情或親情，不能有告白或戀愛的內容。
@@ -163,7 +163,7 @@ function briefFromOrder(o) {
     `曲風：${st.name}（參考英文風格：${st.tags}）`,
     `人聲：${o.vocal === "m" ? "男聲" : o.vocal === "f" ? "女聲" : "不限"}`,
     `整體情緒：${o.mood || "溫暖感動"}`,
-    `歌曲長度目標：約 ${Math.round((o.length || 180) / 60)} 分鐘`,
+    `歌曲長度目標：約 ${Math.round((o.length || 180) / 60)} 分鐘——歌詞總共最多 ${maxLinesFor(o.length)} 句（不含段落標籤），寧可少寫段落也不要塞太多，否則 AI 唱不完會跳句`,
     "",
     `對方是什麼樣的人：${o.q_person || "（未填）"}`,
     `你們最難忘的回憶：${o.q_memory || "（未填）"}`,
@@ -203,7 +203,7 @@ export async function generateLyrics(order) {
   try { data = JSON.parse(text); } catch { throw new Error("歌詞格式解析失敗，請再試一次。"); }
   return {
     title: String(data.title || `給${order.recipient}的歌`).slice(0, 80),
-    lyrics: String(data.lyrics || "").trim(),
+    lyrics: fitLyrics(String(data.lyrics || "").trim(), order.length),
     style: String(data.style || styleByKey(order.style).tags).slice(0, 900),
     source: "claude",
   };
@@ -214,7 +214,7 @@ export const OCC_LYRICS = {
   birthday: {
     title: "{n}，生日快樂", theme: "生日：祝福對方生日快樂、許願、吹蠟燭、又長大一歲、新的一年",
     verse2: ["蛋糕上的燭光輕輕搖晃", "閉上眼睛許下你的願望", "又長大了一歲的你", "笑起來還是那麼閃亮"],
-    pre: ["今天全世界都為你歌唱", "把最好的祝福放在你身旁"],
+    pre: ["今天全世界都為你歌唱", "把祝福放在你身旁"],
     chorus: ["{n}，祝你生日快樂", "願你每個願望都能實現", "新的一歲平安又健康", "快樂永遠住在你心上"],
     bridge: ["吹熄蠟燭的那一刻", "我偷偷許的願也是你"],
     outro: "{n}，生日快樂",
@@ -253,9 +253,9 @@ export const OCC_LYRICS = {
   },
   father: {
     title: "爸爸的肩膀", theme: "父親節：感謝爸爸、寬厚的肩膀、沉默的愛、背影",
-    verse2: ["小時候坐在你的肩膀", "以為能看見整個世界", "你總是話不多", "卻把愛藏在每一件小事裡"],
+    verse2: ["小時候坐在你的肩膀", "以為能看見整個世界", "你總是話不多", "卻把愛藏在小事裡"],
     pre: ["你的背影變得有點彎", "我卻還沒好好說謝謝"],
-    chorus: ["{n}，父親節快樂", "你的肩膀是我最大的依靠", "辛苦了那麼多年", "換我讓你驕傲"],
+    chorus: ["{n}，父親節快樂", "你的肩膀是我的依靠", "辛苦了那麼多年", "換我讓你驕傲"],
     bridge: ["你沒說出口的愛", "我現在都懂了"],
     outro: "{n}，謝謝你",
   },
@@ -263,7 +263,7 @@ export const OCC_LYRICS = {
     title: "謝謝你", theme: "感謝：感恩對方的付出、陪伴、在困難時伸出手",
     verse2: ["在我最難過的時候", "是你陪我度過", "你給的每一份溫暖", "我都好好收著"],
     pre: ["有些話一直想說", "今天終於說出口"],
-    chorus: ["{n}，真的謝謝你", "謝謝你出現在我的生命裡", "你給我的每一份好", "我會一輩子記得"],
+    chorus: ["{n}，真的謝謝你", "謝謝你走進我生命裡", "你給我的每一份好", "我會一輩子記得"],
     bridge: ["如果沒有你", "我不會是今天的我"],
     outro: "{n}，謝謝你",
   },
@@ -334,7 +334,7 @@ const VERSE1_BANK = {
     ["第一次見面我好緊張", "話都說得結結巴巴"],
     ["下雨天擠在同一把傘下", "誰也捨不得先回家"],
     ["你總記得我的半糖少冰", "把我放在心上每一天"],
-    ["吵架後先笑出來的總是你", "讓我知道什麼叫珍惜"],
+    ["吵架後總是你先笑", "讓我知道什麼叫珍惜"],
     ["深夜一起吃的那碗麵", "是我記得最暖的味道"],
     ["你靠在我肩上睡著", "我連動都捨不得動"],
     ["一起去過的那片海", "浪聲裡都是你的笑"],
@@ -413,7 +413,7 @@ const PLATONIC_THEME = {
 
 // 情侶以外的對象，部分場合的橋段改成不帶戀愛語氣的版本
 const BRIDGE_NON_LOVER = {
-  birthday: ["願這個世界溫柔待你", "每一天都有人把你放心上"],
+  birthday: ["願這個世界溫柔待你", "每天都有人把你放心上"],
   love: ["謝謝你一直在我身邊", "你是我最重要的人"],
   missyou: ["等到再見面的那一天", "我們再好好聊個痛快"],
 };
@@ -446,7 +446,7 @@ const OCC_ALT = {
       pre: ["把這一年的幸福", "寫成一首歌送給你"],
       chorus: ["{n}，週年快樂", "有你的日子都是晴天", "未來還有好多年", "我們慢慢走"],
       bridge: ["謝謝你選擇了我", "這是我最大的幸運"],
-      outro: "{n}，我們還要一起走很久" },
+      outro: "{n}，還要一起走很久" },
   ],
   love: [
     { title: "只想對{n}說",
@@ -494,7 +494,7 @@ const OCC_ALT = {
     { title: "{n}，謝謝你",
       verse2: ["你很少說辛苦", "總是一個人扛下來", "下班回家的腳步", "是我最安心的聲音"],
       pre: ["那些你沒說的話", "我現在都聽懂了"],
-      chorus: ["{n}，父親節快樂", "謝謝你為這個家撐起一片天", "換我陪你喝杯茶", "聽你說說從前"],
+      chorus: ["{n}，父親節快樂", "謝謝你為家撐起一片天", "換我陪你喝杯茶", "聽你說說從前"],
       bridge: ["你教會我勇敢", "也教會我溫柔"],
       outro: "{n}，父親節快樂" },
     { title: "我的超人爸爸",
@@ -651,7 +651,7 @@ function weddingDateLines(o, lover) {
   const w = parseWeddingDate(o.weddingDate);
   if (!w) return [];
   if (o.occasion === "wedding") {
-    return lover ? [w.zh, "是我們說好一輩子的日子"] : [w.zh, "是你走向幸福的日子"];
+    return lover ? [w.zh, "是我們許下一生的日子"] : [w.zh, "是你走向幸福的日子"];
   }
   if (o.occasion === "anniversary") {
     if (w.years < 0) return [w.zh, lover ? "是我們最重要的日子" : "是你最重要的日子"];
@@ -660,6 +660,59 @@ function weddingDateLines(o, lover) {
     return [...head, `一轉眼已經${w.zhYears}年`, lover ? "我對你的愛只多不少" : "祝你們永遠幸福"];
   }
   return [];
+}
+
+// ── 歌詞長度要配合歌曲秒數：太多 AI 唱不完就會跳句 ──
+export const maxLinesFor = (sec) => ({ 120: 18, 180: 28, 240: 36 })[Number(sec) || 180] || Math.round(((Number(sec) || 180) - 26) / 5.2);
+function parseSections(lyrics) {
+  const out = []; let cur = { tag: "", lines: [] };
+  for (const raw of String(lyrics || "").split("\n")) {
+    const l = raw.trim();
+    const m = l.match(/^\[(.+?)\]$/);
+    if (m) { if (cur.tag || cur.lines.length) out.push(cur); cur = { tag: m[1], lines: [] }; }
+    else if (l) cur.lines.push(l);
+  }
+  if (cur.tag || cur.lines.length) out.push(cur);
+  return out;
+}
+const joinSections = (secs) => secs.map((s) => (s.tag ? `[${s.tag}]\n` : "") + s.lines.join("\n")).join("\n\n");
+// 估計唱完需要幾秒：每個字約 0.42 秒、每句換氣 0.8 秒、每段間奏 3 秒、前奏＋尾奏 14 秒
+export function singSeconds(lyrics) {
+  let t = 14;
+  for (const s of parseSections(lyrics)) {
+    t += 3;
+    for (const l of s.lines) t += 0.8 + l.replace(/[^\p{L}\p{N}]/gu, "").length * 0.42;
+  }
+  return Math.round(t);
+}
+// 超過歌曲長度時，依序拿掉最不重要的部分，直到唱得完
+export function fitLyrics(lyrics, seconds) {
+  const sec = Number(seconds) || 180;
+  let secs = parseSections(lyrics);
+  if (!secs.length || singSeconds(lyrics) <= sec) return lyrics;
+  const is = (s, re) => re.test(s.tag);
+  const CH = /chorus|副歌/i, PRE = /pre-?chorus|導歌/i, V2 = /verse\s*2|主歌二/i, V1 = /verse(\s*1)?$|主歌一/i, BR = /bridge|橋段/i, INTRO = /intro|前奏/i;
+  const chorusIdx = () => secs.map((s, i) => (is(s, CH) && !is(s, PRE) ? i : -1)).filter((i) => i >= 0);
+  const steps = [
+    () => { secs = secs.filter((s) => !(is(s, INTRO) && s.lines.length)); },
+    () => { const p = secs.map((s, i) => (is(s, PRE) ? i : -1)).filter((i) => i >= 0); if (p.length > 1) secs.splice(p[p.length - 1], 1); },
+    () => { secs.forEach((s) => { if (is(s, BR) && s.lines.length > 4) s.lines = s.lines.slice(0, 4); }); },
+    () => { const c = chorusIdx(); if (c.length >= 3) secs.splice(c[c.length - 2], 1); },
+    () => { secs.forEach((s) => { if (is(s, V2) && s.lines.length > 2) s.lines = s.lines.slice(0, 2); }); },
+    () => { secs.forEach((s) => { if (is(s, BR) && s.lines.length > 2) s.lines = s.lines.slice(0, 2); }); },
+    () => { const p = secs.findIndex((s) => is(s, PRE)); if (p >= 0) secs.splice(p, 1); },
+    () => { secs = secs.filter((s) => !is(s, V2)); },
+    () => { secs.forEach((s) => { if (is(s, V1) && s.lines.length > 2) s.lines = s.lines.slice(0, 2); }); },
+    () => { secs = secs.filter((s) => !is(s, BR)); },
+    () => { const c = chorusIdx(); if (c.length >= 2) secs.splice(c[0], 1); },
+  ];
+  for (const step of steps) {
+    step();
+    if (singSeconds(joinSections(secs)) <= sec) return joinSections(secs);
+  }
+  // 使用者自己貼的超長歌詞：保留開頭與結尾，從倒數第二段往前拿掉
+  while (secs.length > 3 && singSeconds(joinSections(secs)) > sec) secs.splice(secs.length - 2, 1);
+  return joinSections(secs);
 }
 
 // 沒有 Claude 金鑰時的內建範本詞（可再手動修改）。每次隨機組合，並避免和上一版一模一樣
@@ -695,7 +748,7 @@ function templateOnce(o) {
   const [c1, c2] = [...bank].sort(() => Math.random() - 0.5);
   const bridge = group !== "lover" && BRIDGE_NON_LOVER[oc.key]
     ? pickOne([BRIDGE_NON_LOVER[oc.key], ...(BRIDGE_NON_LOVER_ALT[oc.key] || [])]) : L.bridge;
-  const finalChorus = [...L.chorus.slice(0, 3), pickOne(["這首歌，是我想對你說的話", "這首歌，唱給最重要的你", "把這份心意，唱給你聽"])];
+  const finalChorus = [...L.chorus.slice(0, 3), pickOne(["這首歌是我的心裡話", "這首歌，唱給最重要的你", "把這份心意，唱給你聽"])];
   // 署名句不能在名字後面加逗號（「阿哲，把這首歌送給你」會變成在叫阿哲）
   const sender = String(o.sender || "").trim().replace(/[，,、。！!？?\s]+$/, "");
   const outro = sender ? [f(L.outro), pickOne([`這首歌是${sender}送給你的`, `${sender}把這首歌送給你`, `${sender}唱這首歌給你聽`])] : [f(L.outro)];
@@ -728,6 +781,7 @@ function templateOnce(o) {
     "[Outro]",
     ...outro,
   ].join("\n");
+  lyrics = fitLyrics(lyrics, o.length);
   let title = f(L.title);
   if (isFemale(o)) {
     // 送給女生：你 → 妳（名字本身不動）
