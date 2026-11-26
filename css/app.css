@@ -202,3 +202,5 @@ input[type=color]{width:46px;height:38px;border:1px solid var(--line);border-rad
 [data-pick=style] .pick{grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px}
 [data-pick=style] .pick button{padding:8px 4px;font-size:13px;border-radius:12px}
 [data-pick=style] .pick button .e{font-size:20px}
+.seg-len button{min-width:72px;flex:1 1 72px;padding:9px 6px;font-size:14px}
+.seg-len button:first-child{flex-basis:100%}

@@ -100,11 +100,17 @@ export const OCCASIONS = [
 export const RELATIONS = ["另一半", "老婆", "老公", "女朋友", "男朋友", "媽媽", "爸爸", "女兒", "兒子",
   "姊妹", "兄弟", "奶奶", "爺爺", "外婆", "外公", "好朋友", "同事", "老師", "自己"];
 
+// 歌曲長度（秒）。0 = 自動：依歌詞多寡決定長度
 export const LENGTHS = [
-  { key: 120, name: "精簡版（約 2 分鐘）" },
-  { key: 180, name: "標準版（約 3 分鐘）" },
-  { key: 240, name: "完整版（約 4 分鐘）" },
+  { key: 0, name: "自動（依歌詞）" },
+  { key: 60, name: "1 分鐘" }, { key: 90, name: "1 分半" }, { key: 120, name: "2 分鐘" },
+  { key: 150, name: "2 分半" }, { key: 180, name: "3 分鐘" }, { key: 210, name: "3 分半" },
+  { key: 240, name: "4 分鐘" }, { key: 300, name: "5 分鐘" }, { key: 360, name: "6 分鐘" },
 ];
+export const MAX_SECONDS = 360; // 本機 AI 不開語言模型最長 6 分鐘
+// 自動長度：依歌詞估計的演唱時間，加一點尾奏，取整到 10 秒
+export const autoSeconds = (lyrics) => Math.min(MAX_SECONDS, Math.max(60, Math.ceil((singSeconds(lyrics) + 6) / 10) * 10));
+export const fmtLen = (sec) => { sec = Math.round(Number(sec) || 0); const m = Math.floor(sec / 60), s = sec % 60; return m ? `${m} 分${s ? ` ${s} 秒` : "鐘"}` : `${s} 秒`; };
 
 export const styleByKey = (k) => STYLES.find((s) => s.key === k) || STYLES[0];
 // 本機合成只有 12 種伴奏：新曲風對應到最接近的那一種
@@ -163,7 +169,8 @@ function briefFromOrder(o) {
     `曲風：${st.name}（參考英文風格：${st.tags}）`,
     `人聲：${o.vocal === "m" ? "男聲" : o.vocal === "f" ? "女聲" : "不限"}`,
     `整體情緒：${o.mood || "溫暖感動"}`,
-    `歌曲長度目標：約 ${Math.round((o.length || 180) / 60)} 分鐘——歌詞總共最多 ${maxLinesFor(o.length)} 句（不含段落標籤），寧可少寫段落也不要塞太多，否則 AI 唱不完會跳句`,
+    Number(o.length) ? `歌曲長度：${fmtLen(o.length)}——歌詞大約 ${maxLinesFor(o.length)} 句（不含段落標籤，可少 3 句、不能多），太多 AI 唱不完會跳句、太少會有大段空白${Number(o.length) >= 240 ? "；長度較長，可以加 [Verse 3]、多重複一次副歌，或加入不寫歌詞的 [Instrumental] 間奏段落" : ""}${Number(o.length) <= 90 ? "；長度很短，只寫一段主歌加副歌即可" : ""}`
+      : `歌曲長度：自動（依歌詞決定），請寫成約 3 分鐘的份量（約 ${maxLinesFor(180)} 句）`,
     "",
     `對方是什麼樣的人：${o.q_person || "（未填）"}`,
     `你們最難忘的回憶：${o.q_memory || "（未填）"}`,
@@ -663,7 +670,7 @@ function weddingDateLines(o, lover) {
 }
 
 // ── 歌詞長度要配合歌曲秒數：太多 AI 唱不完就會跳句 ──
-export const maxLinesFor = (sec) => ({ 120: 18, 180: 28, 240: 36 })[Number(sec) || 180] || Math.round(((Number(sec) || 180) - 26) / 5.2);
+export const maxLinesFor = (sec) => ({ 120: 18, 180: 28, 240: 36 })[Number(sec) || 180] || Math.max(6, Math.round(((Number(sec) || 180) - 26) / 5.2));
 function parseSections(lyrics) {
   const out = []; let cur = { tag: "", lines: [] };
   for (const raw of String(lyrics || "").split("\n")) {
@@ -681,19 +688,21 @@ export function singSeconds(lyrics) {
   let t = 14;
   for (const s of parseSections(lyrics)) {
     t += 3;
+    if (!s.lines.length && s.tag) t += /intro|前奏/i.test(s.tag) ? 8 : 12;
     for (const l of s.lines) t += 0.8 + l.replace(/[^\p{L}\p{N}]/gu, "").length * 0.42;
   }
   return Math.round(t);
 }
 // 超過歌曲長度時，依序拿掉最不重要的部分，直到唱得完
 export function fitLyrics(lyrics, seconds) {
-  const sec = Number(seconds) || 180;
+  const sec = Number(seconds) || MAX_SECONDS;
   let secs = parseSections(lyrics);
   if (!secs.length || singSeconds(lyrics) <= sec) return lyrics;
   const is = (s, re) => re.test(s.tag);
   const CH = /chorus|副歌/i, PRE = /pre-?chorus|導歌/i, V2 = /verse\s*2|主歌二/i, V1 = /verse(\s*1)?$|主歌一/i, BR = /bridge|橋段/i, INTRO = /intro|前奏/i;
   const chorusIdx = () => secs.map((s, i) => (is(s, CH) && !is(s, PRE) ? i : -1)).filter((i) => i >= 0);
   const steps = [
+    () => { secs = secs.filter((s) => s.lines.length || !s.tag); },
     () => { secs = secs.filter((s) => !(is(s, INTRO) && s.lines.length)); },
     () => { const p = secs.map((s, i) => (is(s, PRE) ? i : -1)).filter((i) => i >= 0); if (p.length > 1) secs.splice(p[p.length - 1], 1); },
     () => { secs.forEach((s) => { if (is(s, BR) && s.lines.length > 4) s.lines = s.lines.slice(0, 4); }); },
@@ -781,7 +790,33 @@ function templateOnce(o) {
     "[Outro]",
     ...outro,
   ].join("\n");
-  lyrics = fitLyrics(lyrics, o.length);
+  // 歌曲比較長：加主歌三、間奏、副歌重複，讓歌詞剛好填滿長度（短的由 fitLyrics 精簡）
+  const target = Number(o.length) || 180;
+  {
+    const secs = parseSections(lyrics);
+    const used = new Set([c1[0], c2 && c2[0]]);
+    const spare = VERSE1_BANK[group].filter((c) => !used.has(c[0]) && (!skip || !skip.test(c.join("")))).sort(() => Math.random() - 0.5);
+    const before = (re) => { const i = secs.findIndex((s) => re.test(s.tag)); return i < 0 ? secs.length - 1 : i; };
+    const chorus = () => ({ tag: "Chorus", lines: L.chorus.map(f) });
+    const otherV2 = pool.map((x) => x.verse2).find((x) => x !== L.verse2);
+    const adds = [
+      () => spare.length && secs.splice(before(/bridge/i), 0, { tag: "Verse 3", lines: [...spare[0], ...(spare[1] || [])] }, chorus()),
+      () => secs.splice(before(/bridge/i), 0, { tag: "Instrumental", lines: [] }),
+      () => secs.splice(before(/outro/i), 0, chorus()),
+      () => secs.unshift({ tag: "Intro", lines: [] }),
+      () => otherV2 && secs.splice(before(/bridge/i), 0, { tag: "Verse 4", lines: otherV2.map(f) }, chorus()),
+      () => secs.splice(before(/outro/i), 0, { tag: "Instrumental", lines: [] }),
+      () => secs.splice(before(/outro/i), 0, chorus()),
+      () => secs.splice(before(/final chorus/i), 0, { tag: "Instrumental", lines: [] }),
+      () => secs.splice(before(/outro/i), 0, chorus()),
+    ];
+    for (const add of adds) {
+      if (singSeconds(joinSections(secs)) >= target - 22) break;
+      add();
+    }
+    lyrics = joinSections(secs);
+  }
+  lyrics = fitLyrics(lyrics, target);
   let title = f(L.title);
   if (isFemale(o)) {
     // 送給女生：你 → 妳（名字本身不動）
@@ -836,7 +871,7 @@ export async function runAceStep(v, onStatus) {
     param_5: lyrics.slice(0, 4000),
     param_9: vocalLang(v.styleTags),
     param_14: null,
-    param_15: Math.min(Number(v.length) || 120, 240),
+    param_15: Math.min(Number(v.length) || 120, 240), // 免費雲端額度有限，最長 4 分鐘
     param_16: 2,
     param_17: null,
     param_18: "",
@@ -915,7 +950,7 @@ export async function startAce(v) {
     prompt: (/(fe)?male vocal/i.test(style) ? style : style + vocal).slice(0, 500),
     lyrics: lyrics.slice(0, 4000),
     vocal_language: vocalLang(v.styleTags),
-    audio_duration: Math.min(Number(v.length) || 120, 240),
+    audio_duration: Math.min(Number(v.length) || 120, MAX_SECONDS),
     batch_size: 1,
     audio_format: "mp3",
     thinking: false,

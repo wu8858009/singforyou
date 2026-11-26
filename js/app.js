@@ -1,5 +1,5 @@
 import {
-  STYLES, STYLE_CATS, synthStyle, fitLyrics, singSeconds, OCCASIONS, RELATIONS, LENGTHS, styleByKey, occasionByKey,
+  STYLES, STYLE_CATS, synthStyle, fitLyrics, singSeconds, autoSeconds, fmtLen, OCCASIONS, RELATIONS, LENGTHS, styleByKey, occasionByKey,
   generateLyrics, startSong, pollSong, STATUS_TEXT, testMusicKey, testClaudeKey, runAceStep, PROVIDERS,
   startAce, pollAce, aceStatus, aceBase,
 } from "./engine.js";
@@ -153,6 +153,7 @@ function renderCreate(occArg) {
     $$("[data-f]", card).forEach((el) => {
       const upd = () => { d[el.dataset.f] = el.value; save(); if (el.dataset.f === "lyrics") updNext(); };
       el.addEventListener("input", upd);
+      if (el.dataset.f === "lyrics") el.addEventListener("input", () => { const h = $("#lenHint"); if (h) h.textContent = lenHint(el.value, d.length); });
       if (el.type === "date") el.addEventListener("change", upd);
     });
     $$("[data-pick]", card).forEach((grp) => {
@@ -306,7 +307,8 @@ function stepStyle(d) {
     <div class="q"><span class="lbl">整體情緒</span>
       <div class="seg" data-pick="mood">${MOODS.map((m) => `<button type="button" data-v="${m}" class="${d.mood === m ? "on" : ""}">${m}</button>`).join("")}</div></div>
     <div class="q"><span class="lbl">歌曲長度</span>
-      <div class="seg" data-pick="length">${LENGTHS.map((l) => `<button type="button" data-v="${l.key}" class="${Number(d.length) === l.key ? "on" : ""}">${l.name}</button>`).join("")}</div></div>`;
+      <p class="hint">歌詞會依分鐘數自動增減；選「自動」則依歌詞多寡決定長度</p>
+      <div class="seg seg-len" data-pick="length">${LENGTHS.map((l) => `<button type="button" data-v="${l.key}" class="${Number(d.length) === l.key ? "on" : ""}">${l.name}</button>`).join("")}</div></div>`;
 }
 
 // 不用填故事：依關係與場合自動寫好故事素材，歌詞產生器會用這些內容
@@ -380,6 +382,17 @@ function autoStory(d) {
   d.lyrics = ""; d.title = ""; d.styleTags = "";
 }
 
+// 歌詞頁的長度提示：預估演唱時間 vs 歌曲長度
+function lenHint(lyrics, length) {
+  if (!String(lyrics || "").trim()) return "";
+  const need = singSeconds(lyrics), len = Number(length);
+  const lines = String(lyrics).split("\n").filter((l) => l.trim() && !/^\s*\[/.test(l)).length;
+  if (!len) return `⏱ ${lines} 句，預估演唱約 ${fmtLen(need)}，歌曲長度會自動設為 ${fmtLen(autoSeconds(lyrics))}`;
+  if (need > len) return `⚠️ ${lines} 句，預估要唱 ${fmtLen(need)}，比歌曲長度 ${fmtLen(len)} 多，製作時會自動精簡（或回上一步選更長的分鐘數）`;
+  if (need < len * 0.6) return `⏱ ${lines} 句，預估演唱約 ${fmtLen(need)}，歌曲 ${fmtLen(len)}，間奏會比較長（可加歌詞或選短一點的分鐘數）`;
+  return `✅ ${lines} 句，預估演唱約 ${fmtLen(need)}，剛好配合歌曲長度 ${fmtLen(len)}`;
+}
+
 function stepLyrics(d) {
   const hasClaude = !!getSettings().claudeKey;
   if (!d.lyrics) {
@@ -392,7 +405,8 @@ function stepLyrics(d) {
     <p class="muted small">可以直接修改任何一句。方括號內的段落標籤（如 [Chorus]）請保留，AI 會依此安排主歌與副歌。</p>
     <div id="lyricsBox">
     <div class="q"><label for="f-title">歌名</label><input id="f-title" type="text" maxlength="80" data-f="title" value="${esc(d.title)}"></div>
-    <div class="q"><label for="f-lyrics">歌詞</label><textarea id="f-lyrics" class="lyrics-edit" data-f="lyrics" maxlength="5000">${esc(d.lyrics)}</textarea></div>
+    <div class="q"><label for="f-lyrics">歌詞</label><textarea id="f-lyrics" class="lyrics-edit" data-f="lyrics" maxlength="5000">${esc(d.lyrics)}</textarea>
+      <p class="hint" id="lenHint">${lenHint(d.lyrics, d.length)}</p></div>
     <details class="faq"><summary>進階：音樂風格描述（英文）</summary>
       <p>給 AI 音樂模型的風格指示，可加入樂器、速度等。不要寫真實歌手名字。</p>
       <textarea data-f="styleTags" maxlength="1000" style="min-height:70px;margin-bottom:14px">${esc(d.styleTags)}</textarea></details>
@@ -415,6 +429,7 @@ async function submitVersion(v) {
   v.provider = s.provider || "hf";
   v.vocalGender = v.vocal;
   // 歌詞比歌曲長度多：自動精簡，避免 AI 唱不完而跳句（sunoapi 會自己調整長度，不用處理）
+  if (!Number(v.length)) v.length = autoSeconds(v.lyrics);
   if (v.provider !== "suno") {
     const fit = fitLyrics(v.lyrics, v.length);
     if (fit !== v.lyrics) { v.lyrics = fit; toast("歌詞比歌曲長度多，已自動精簡（避免 AI 跳句）。想保留全部可以選更長的歌曲長度。"); }
@@ -857,6 +872,7 @@ function openEdit(song, v) {
   p.innerHTML = `<div class="card" style="margin-top:12px">
     <h3>修改重做（會產生新的版本，舊版本保留）</h3>
     <div class="q"><span class="lbl">曲風</span><select id="e-style">${STYLE_CATS.map((c, ci) => `<optgroup label="${c}">${STYLES.filter((s) => s.cat === ci).map((s) => `<option value="${s.key}" ${s.key === song.order.style ? "selected" : ""}>${s.emoji} ${s.name}</option>`).join("")}</optgroup>`).join("")}</select></div>
+    <div class="q"><span class="lbl">歌曲長度</span><select id="e-len">${LENGTHS.map((l) => `<option value="${l.key}" ${l.key === Number(v.length) ? "selected" : ""}>${l.name}</option>`).join("")}${LENGTHS.some((l) => l.key === Number(v.length)) ? "" : `<option value="${Number(v.length) || 0}" selected>${fmtLen(v.length)}</option>`}</select></div>
     <div class="q"><span class="lbl">人聲</span><select id="e-vocal">${[["f", "女聲"], ["m", "男聲"], ["any", "讓 AI 決定"]].map(([k, n]) => `<option value="${k}" ${k === v.vocal ? "selected" : ""}>${n}</option>`).join("")}</select></div>
     <div class="q"><label for="e-title">歌名</label><input id="e-title" type="text" maxlength="80" value="${esc(v.title)}"></div>
     <div class="q"><label for="e-lyrics">歌詞</label><textarea id="e-lyrics" class="lyrics-edit" maxlength="5000">${esc(v.lyrics)}</textarea></div>
@@ -885,7 +901,9 @@ function openEdit(song, v) {
     if (!lyrics) return toast("歌詞不能是空的", true);
     song.order.style = styleKey;
     p.innerHTML = "";
-    await newVersion(song, { title, lyrics, styleTags: tags, vocal, length: v.length });
+    const length = Number($("#e-len").value) || 0;
+    song.order.length = length;
+    await newVersion(song, { title, lyrics, styleTags: tags, vocal, length });
   };
 }
 
