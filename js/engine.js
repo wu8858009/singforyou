@@ -961,6 +961,14 @@ export async function startAce(v) {
   return id;
 }
 
+// 把本機 AI 的英文錯誤翻成看得懂的說明
+function aceErrorText(m) {
+  m = String(m || "");
+  if (/timed out|timeout/i.test(m)) return "做太久被中斷（超過時間上限）。請更新並重開電腦版後再試，或選短一點的歌曲長度。";
+  if (/out of memory|CUDA error|OOM/i.test(m)) return "顯示卡記憶體不足。請關掉其他程式（遊戲、瀏覽器影片）或選短一點的歌曲長度再試。";
+  return m ? m.replace(/^.*\| ERROR +\| [^-]*- /, "") : "未知錯誤（電腦版的 ace.log 有詳細紀錄）";
+}
+
 export async function pollAce(taskId) {
   const j = await aceFetch("/query_result", { task_id_list: [taskId] });
   const item = (j && j.data && j.data[0]) || {};
@@ -971,7 +979,9 @@ export async function pollAce(taskId) {
   if (item.status === 2) {
     let msg = "";
     try { const r = JSON.parse(item.result || "{}"); msg = (Array.isArray(r) ? r[0] : r)?.error || ""; } catch { msg = item.result || ""; }
-    return { done: false, failed: "本機 AI 產生失敗：" + (msg || item.error || "未知錯誤") };
+    msg = msg || item.error || "";
+    if (!msg) { const st = await aceStatus().catch(() => ({})); msg = st.last_error || ""; }
+    return { done: false, failed: "本機 AI 產生失敗：" + aceErrorText(msg) };
   }
   let res = [];
   try { res = JSON.parse(item.result || "[]"); } catch { /* ignore */ }

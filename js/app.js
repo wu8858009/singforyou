@@ -307,7 +307,7 @@ function stepStyle(d) {
     <div class="q"><span class="lbl">整體情緒</span>
       <div class="seg" data-pick="mood">${MOODS.map((m) => `<button type="button" data-v="${m}" class="${d.mood === m ? "on" : ""}">${m}</button>`).join("")}</div></div>
     <div class="q"><span class="lbl">歌曲長度</span>
-      <p class="hint">歌詞會依分鐘數自動增減；選「自動」則依歌詞多寡決定長度</p>
+      <p class="hint">歌詞會依分鐘數自動增減；選「自動」則依歌詞多寡決定長度。本機 AI 製作時間：3 分鐘的歌約 5 分鐘、6 分鐘的歌約 11 分鐘</p>
       <div class="seg seg-len" data-pick="length">${LENGTHS.map((l) => `<button type="button" data-v="${l.key}" class="${Number(d.length) === l.key ? "on" : ""}">${l.name}</button>`).join("")}</div></div>`;
 }
 
