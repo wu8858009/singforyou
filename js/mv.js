@@ -85,7 +85,7 @@ export function mvPanelHtml(v, esc) {
   const nTracks = v.tracks.filter((t) => t.blobKey || t.audioUrl).length;
   return `<div class="card" style="margin-top:12px" id="mvCard">
     <h3>🎬 製作歌詞 MV 影片 <span class="badge ok">PRO</span></h3>
-    <p class="muted small">音樂＋照片輪播＋逐句歌詞，加上你的品牌${brand().wmOn ? "與浮水印" : ""}。影片會照歌曲長度即時錄製，<b>製作時請讓這個視窗保持在最前面</b>。${onDesktop() ? "電腦版會先「聽」一次歌（約 1 分鐘），讓每句歌詞準確對上演唱。" : "歌詞時間由音檔自動估算；用電腦版製作會更準。"}</p>
+    <p class="muted small">音樂＋照片輪播＋逐句歌詞，加上你的品牌${brand().wmOn ? "與浮水印" : ""}。影片會照歌曲長度即時錄製，<b>製作時請讓這個視窗保持在最前面</b>。${onDesktop() ? "電腦版會先分離人聲、「聽」一次歌（第一次約 4 分鐘），讓每句歌詞準確對上演唱。" : "歌詞時間由音檔自動估算；用電腦版製作會更準。"}</p>
     <div class="q"><span class="lbl">影片格式</span><div class="seg" id="mvFmt">${Object.entries(FORMATS).map(([k, f], i) => `<button type="button" data-v="${k}" class="${i ? "" : "on"}">${f.name}</button>`).join("")}</div></div>
     ${nTracks > 1 ? `<div class="q"><span class="lbl">使用版本</span><div class="seg" id="mvTrack">${Array.from({ length: nTracks }, (_, i) => `<button type="button" data-v="${i}" class="${i ? "" : "on"}">版本 ${String.fromCharCode(65 + i)}</button>`).join("")}</div></div>` : ""}
     <div class="q"><span class="lbl">照片（選填，最多 20 張，依順序輪播）</span>
@@ -131,7 +131,7 @@ export function bindMvPanel({ $, $$, song, v, getAudio, save, toast }) {
     try {
       const blob = await getAudio(track);
       if (!blob) throw new Error("找不到這個版本的音檔");
-      $("#mvStat").textContent = onDesktop() ? "正在聽歌，找出每句歌詞唱的時間…（約 1 分鐘）" : "";
+      $("#mvStat").textContent = onDesktop() ? "正在分離人聲並聽歌，找出每句歌詞唱的時間…（第一次約 4 分鐘，同一首歌再做會很快）" : "";
       const timing = await alignByListening(blob, v.lyrics);
       job = makeMv({ song, v, blob, photos, fmt, timing, hear: $("#mvHear").checked, canvas: $("#mvPrev"),
         onProgress: (p, t, D) => { $("#mvBar").style.width = (p * 100).toFixed(1) + "%"; $("#mvStat").textContent = `錄製中 ${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")} / ${Math.floor(D / 60)}:${String(Math.floor(D % 60)).padStart(2, "0")}（${Math.round(p * 100)}%）`; } });
