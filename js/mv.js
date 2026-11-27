@@ -55,21 +55,86 @@ export function buildTimeline(lyrics, D, buf, timing) {
   return { lines, intro, outro: end };
 }
 
-// 照片完整顯示不裁切：背後放同一張照片放大＋模糊＋變暗填滿空白
-function photoDraw(g, im, W, H, zoom, alpha) {
-  g.save();
-  g.globalAlpha = alpha;
+// ── 照片投影片：完整顯示不裁切，背後放同一張照片放大＋模糊＋變暗填滿空白 ──
+// 照片可以很多張：每張只在要播之前才讀進來畫成一張投影片，播過就丟掉，不會吃光記憶體
+async function toBitmap(src) {
+  try {
+    if (src instanceof Blob) return await createImageBitmap(src);
+    return src; // 已經是 Image / ImageBitmap
+  } catch { return null; }
+}
+function renderSlide(im, W, H) {
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d");
+  g.fillStyle = "#120a1d"; g.fillRect(0, 0, W, H);
+  if (!im) return c;
   const kc = Math.max(W / im.width, H / im.height) * 1.1;
-  const cw = im.width * kc, ch = im.height * kc;
   g.filter = "blur(28px) brightness(0.55)";
-  g.drawImage(im, (W - cw) / 2, (H - ch) / 2, cw, ch);
+  g.drawImage(im, (W - im.width * kc) / 2, (H - im.height * kc) / 2, im.width * kc, im.height * kc);
   g.filter = "none";
-  const k = Math.min(W / im.width, H / im.height) * zoom;
+  const k = Math.min(W / im.width, H / im.height) * 0.94;
   const w = im.width * k, h = im.height * k;
   g.shadowColor = "rgba(0,0,0,.5)"; g.shadowBlur = 30;
   g.drawImage(im, (W - w) / 2, (H - h) / 2, w, h);
-  g.restore();
+  return c;
 }
+function slideCache(photos, W, H) {
+  const ready = new Map(), pending = new Map();
+  const load = (i) => {
+    if (i < 0 || i >= photos.length || ready.has(i)) return Promise.resolve();
+    if (pending.has(i)) return pending.get(i);
+    const pr = toBitmap(photos[i]).then((im) => {
+      ready.set(i, renderSlide(im, W, H));
+      if (im && im.close && photos[i] instanceof Blob) im.close();
+      pending.delete(i);
+    });
+    pending.set(i, pr);
+    return pr;
+  };
+  return {
+    load,
+    // 取第 i 張；還沒好就先排隊，並順便預先準備下兩張、丟掉播過的
+    get(i) {
+      load(i); load(i + 1); load(i + 2);
+      for (const k of [...ready.keys()]) if (k < i - 1) { const c = ready.get(k); c.width = c.height = 0; ready.delete(k); }
+      return ready.get(i) || null;
+    },
+  };
+}
+
+// 轉場效果
+export const TRANSITIONS = [
+  ["random", "🎲 隨機"], ["fade", "淡入淡出"], ["slide", "滑入"], ["push", "推移"],
+  ["zoom", "放大"], ["wipe", "擦除"], ["circle", "圓形展開"], ["blinds", "百葉窗"],
+];
+const TR_KEYS = TRANSITIONS.map((x) => x[0]).filter((k) => k !== "random");
+const ease = (p) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2);
+function drawSlide(g, c, W, H, scale = 1, alpha = 1, dx = 0) {
+  if (!c) return;
+  g.globalAlpha = alpha;
+  const w = W * scale, h = H * scale;
+  g.drawImage(c, (W - w) / 2 + dx, (H - h) / 2, w, h);
+  g.globalAlpha = 1;
+}
+export function drawTransition(g, type, A, B, p, W, H, sA = 1, sB = 1) {
+  const e = ease(Math.max(0, Math.min(1, p)));
+  const clipB = (path) => { g.save(); g.beginPath(); path(); g.clip(); drawSlide(g, B, W, H, sB); g.restore(); };
+  switch (type) {
+    case "slide": drawSlide(g, A, W, H, sA); drawSlide(g, B, W, H, sB, 1, W * (1 - e)); break;
+    case "push": drawSlide(g, A, W, H, sA, 1, -W * e); drawSlide(g, B, W, H, sB, 1, W * (1 - e)); break;
+    case "zoom": drawSlide(g, A, W, H, sA * (1 + 0.15 * e), 1 - e); drawSlide(g, B, W, H, sB * (1.25 - 0.25 * e), e); break;
+    case "wipe": drawSlide(g, A, W, H, sA); clipB(() => g.rect(0, 0, W * e, H)); break;
+    case "circle": drawSlide(g, A, W, H, sA); clipB(() => g.arc(W / 2, H / 2, Math.hypot(W, H) / 2 * e, 0, Math.PI * 2)); break;
+    case "blinds": {
+      drawSlide(g, A, W, H, sA);
+      const n = 8, sw = W / n;
+      clipB(() => { for (let k = 0; k < n; k++) g.rect(k * sw, 0, sw * e, H); });
+      break;
+    }
+    default: drawSlide(g, A, W, H, sA); drawSlide(g, B, W, H, sB, e);
+  }
+}
+export const _test = { renderSlide, slideCache };
 
 function wrapLines(g, text, maxW) {
   const out = [];
@@ -88,9 +153,12 @@ export function mvPanelHtml(v, esc) {
     <p class="muted small">音樂＋照片輪播＋逐句歌詞，加上你的品牌${brand().wmOn ? "與浮水印" : ""}。影片會照歌曲長度即時錄製，<b>製作時請讓這個視窗保持在最前面</b>。${onDesktop() ? "電腦版會先分離人聲、「聽」一次歌（第一次約 4 分鐘），讓每句歌詞準確對上演唱。" : "歌詞時間由音檔自動估算；用電腦版製作會更準。"}</p>
     <div class="q"><span class="lbl">影片格式</span><div class="seg" id="mvFmt">${Object.entries(FORMATS).map(([k, f], i) => `<button type="button" data-v="${k}" class="${i ? "" : "on"}">${f.name}</button>`).join("")}</div></div>
     ${nTracks > 1 ? `<div class="q"><span class="lbl">使用版本</span><div class="seg" id="mvTrack">${Array.from({ length: nTracks }, (_, i) => `<button type="button" data-v="${i}" class="${i ? "" : "on"}">版本 ${String.fromCharCode(65 + i)}</button>`).join("")}</div></div>` : ""}
-    <div class="q"><span class="lbl">照片（選填，最多 20 張，依順序輪播）</span>
-      <label class="btn btn-ghost btn-sm">選擇照片<input type="file" id="mvPhotos" accept="image/*" multiple hidden></label>
-      <div class="mv-thumbs" id="mvThumbs"><span class="tiny">沒有照片就用品牌色的動態背景</span></div></div>
+    <div class="q"><span class="lbl">照片（選填，張數不限，依順序輪播；可分幾次加入）</span>
+      <div class="row"><label class="btn btn-ghost btn-sm">＋ 加入照片<input type="file" id="mvPhotos" accept="image/*" multiple hidden></label>
+        <button type="button" class="btn btn-ghost btn-sm hidden" id="mvClear">清除全部</button></div>
+      <p class="tiny" id="mvCount">沒有照片就用品牌色的動態背景</p>
+      <div class="mv-thumbs" id="mvThumbs"></div></div>
+    <div class="q"><span class="lbl">照片轉場效果</span><div class="seg seg-wrap" id="mvTr">${TRANSITIONS.map(([k, n], i) => `<button type="button" data-v="${k}" class="${i ? "" : "on"}">${n}</button>`).join("")}</div></div>
     <label class="row small"><input type="checkbox" id="mvHear"> 製作時播放聲音</label>
     <div class="row" style="margin-top:12px"><button class="btn" id="mvGo">🎬 開始製作 MV</button><button class="btn btn-ghost hidden" id="mvStop">取消</button></div>
     <div id="mvRun" class="hidden" style="margin-top:14px">
@@ -116,14 +184,37 @@ export async function alignByListening(blob, lyrics) {
 
 // 綁定面板並負責錄製；getAudio(i) 回傳該版本音檔 Blob；save(blob, name) 存檔
 export function bindMvPanel({ $, $$, song, v, getAudio, save, toast }) {
-  let fmt = "land", track = 0, photos = [], job = null;
+  let fmt = "land", track = 0, photos = [], job = null, trans = "random";
+  $$("#mvTr button").forEach((b) => b.onclick = () => { trans = b.dataset.v; $$("#mvTr button").forEach((x) => x.classList.toggle("on", x === b)); });
   $$("#mvFmt button").forEach((b) => b.onclick = () => { fmt = b.dataset.v; $$("#mvFmt button").forEach((x) => x.classList.toggle("on", x === b)); });
   $$("#mvTrack button").forEach((b) => b.onclick = () => { track = Number(b.dataset.v); $$("#mvTrack button").forEach((x) => x.classList.toggle("on", x === b)); });
-  $("#mvPhotos").onchange = async (e) => {
-    const files = [...e.target.files].slice(0, 20);
-    photos = (await Promise.all(files.map((f) => loadImage(URL.createObjectURL(f))))).filter(Boolean);
-    $("#mvThumbs").innerHTML = photos.length ? photos.map((p) => `<img src="${p.src}" alt="">`).join("") : `<span class="tiny">沒有可讀取的照片</span>`;
+  // 照片不限張數：只保留檔案，縮圖用小圖顯示，製作時才逐張讀取
+  const SHOW = 60;
+  const showCount = () => {
+    const dur = Number(v.tracks.filter((t) => t.blobKey || t.audioUrl)[track]?.duration) || 0;
+    $("#mvCount").textContent = photos.length
+      ? `已選 ${photos.length} 張照片${dur ? `，每張約顯示 ${(dur / photos.length).toFixed(1)} 秒` : ""}${photos.length > SHOW ? `（縮圖只顯示前 ${SHOW} 張）` : ""}`
+      : "沒有照片就用品牌色的動態背景";
+    $("#mvClear").classList.toggle("hidden", !photos.length);
   };
+  const addThumb = async (f) => {
+    if ($("#mvThumbs").children.length >= SHOW) return;
+    try {
+      const bm = await createImageBitmap(f, { resizeHeight: 112, resizeQuality: "medium" });
+      const c = document.createElement("canvas"); c.width = bm.width; c.height = bm.height;
+      c.getContext("2d").drawImage(bm, 0, 0); bm.close();
+      const im = document.createElement("img"); im.src = c.toDataURL("image/jpeg", 0.7); im.alt = "";
+      $("#mvThumbs").appendChild(im);
+    } catch { /* 讀不到的照片略過 */ }
+  };
+  $("#mvPhotos").onchange = async (e) => {
+    const files = [...e.target.files].filter((f) => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|bmp)$/i.test(f.name));
+    e.target.value = "";
+    photos = photos.concat(files);
+    showCount();
+    for (const f of files) await addThumb(f);
+  };
+  $("#mvClear").onclick = () => { photos = []; $("#mvThumbs").innerHTML = ""; showCount(); };
   $("#mvStop").onclick = () => job && job.cancel();
   $("#mvGo").onclick = async () => {
     if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) return toast("這個瀏覽器不支援錄製影片，請改用電腦版或 Chrome／Edge", true);
@@ -133,7 +224,7 @@ export function bindMvPanel({ $, $$, song, v, getAudio, save, toast }) {
       if (!blob) throw new Error("找不到這個版本的音檔");
       $("#mvStat").textContent = onDesktop() ? "正在分離人聲並聽歌，找出每句歌詞唱的時間…（第一次約 4 分鐘，同一首歌再做會很快）" : "";
       const timing = await alignByListening(blob, v.lyrics);
-      job = makeMv({ song, v, blob, photos, fmt, timing, hear: $("#mvHear").checked, canvas: $("#mvPrev"),
+      job = makeMv({ song, v, blob, photos, fmt, timing, trans, hear: $("#mvHear").checked, canvas: $("#mvPrev"),
         onProgress: (p, t, D) => { $("#mvBar").style.width = (p * 100).toFixed(1) + "%"; $("#mvStat").textContent = `錄製中 ${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")} / ${Math.floor(D / 60)}:${String(Math.floor(D % 60)).padStart(2, "0")}（${Math.round(p * 100)}%）`; } });
       const out = await job.done;
       if (out) {
@@ -149,7 +240,7 @@ export function bindMvPanel({ $, $$, song, v, getAudio, save, toast }) {
   };
 }
 
-export function makeMv({ song, v, blob, photos, fmt, timing, hear, canvas, onProgress }) {
+export function makeMv({ song, v, blob, photos, fmt, timing, trans = "random", hear, canvas, onProgress }) {
   let cancelled = false, cleanup = () => {};
   const done = (async () => {
     const { w: W, h: H } = FORMATS[fmt] || FORMATS.land;
@@ -177,14 +268,24 @@ export function makeMv({ song, v, blob, photos, fmt, timing, hear, canvas, onPro
     rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
     const stopped = new Promise((r) => (rec.onstop = r));
 
+    const slides = slideCache(photos, W, H);
+    let lastSlide = null;
+    if (photos.length) { await slides.load(0); await slides.load(1); }
     const frame = (t) => {
       // 背景：照片輪播（緩慢放大＋交叉淡入）或品牌色動態漸層
       g.fillStyle = "#120a1d"; g.fillRect(0, 0, W, H);
       if (photos.length) {
+        // 每張照片慢慢放大；最後一小段做轉場到下一張
         const per = D / photos.length, i = Math.min(photos.length - 1, Math.floor(t / per)), lt = t - i * per;
-        photoDraw(g, photos[i], W, H, 0.94 + 0.05 * (lt / per), 1);
-        const fade = 1.2;
-        if (i + 1 < photos.length && per - lt < fade) photoDraw(g, photos[i + 1], W, H, 0.94, 1 - (per - lt) / fade);
+        const td = Math.min(1.0, per * 0.4);
+        const A = slides.get(i) || lastSlide;
+        if (A) lastSlide = A;
+        const sA = 1 + 0.05 * (lt / per);
+        const B = i + 1 < photos.length && per - lt < td ? slides.get(i + 1) : null;
+        if (B) {
+          const type = trans === "random" ? TR_KEYS[(i * 5 + 2) % TR_KEYS.length] : trans;
+          drawTransition(g, type, A, B, 1 - (per - lt) / td, W, H, sA, 1);
+        } else drawSlide(g, A, W, H, sA);
       } else {
         const gr = g.createLinearGradient(0, 0, W, H);
         gr.addColorStop(0, "#1b1030"); gr.addColorStop(1, "#3a1a4d"); g.fillStyle = gr; g.fillRect(0, 0, W, H);

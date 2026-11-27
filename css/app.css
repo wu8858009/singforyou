@@ -204,3 +204,5 @@ input[type=color]{width:46px;height:38px;border:1px solid var(--line);border-rad
 [data-pick=style] .pick button .e{font-size:20px}
 .seg-len button{min-width:72px;flex:1 1 72px;padding:9px 6px;font-size:14px}
 .seg-len button:first-child{flex-basis:100%}
+.seg-wrap{flex-wrap:wrap}
+.seg-wrap button{flex:1 1 auto;min-width:84px}
