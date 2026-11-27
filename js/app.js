@@ -5,7 +5,7 @@ import {
 } from "./engine.js";
 import { synthSong } from "./synth.js";
 import { applyBrand, pageTitle, brand, brandName, brandSettingsHtml, bindBrandSettings, drawWatermark, loadImage, watermark } from "./brand.js";
-import { mvPanelHtml, bindMvPanel } from "./mv.js";
+import { mvPanelHtml, bindMvPanel, canTranscribe, transcribeByListening } from "./mv.js";
 import {
   getSettings, saveSettings, getDraft, saveDraft, uid, listSongs, getSong, putSong, deleteSong,
   putBlob, getBlob, exportAll, importAll,
@@ -40,6 +40,7 @@ async function route() {
   if (page === "create") return renderCreate(arg);
   if (page === "song" && arg) return renderSong(arg);
   if (page === "songs") return renderSongs();
+  if (page === "import") return renderImport();
   if (page === "settings") return renderSettings();
   location.hash = "#/";
 }
@@ -698,7 +699,7 @@ async function renderSong(id) {
     const playable = v.tracks.filter((t) => t.blobKey || t.audioUrl || t.streamUrl);
     if (sel >= playable.length) sel = 0;
     const verBar = song.versions.length > 1 ? `<div class="versions">${song.versions.map((x, i) => `<button data-ver="${i}" class="${i === song.current ? "on" : ""}">第 ${x.n} 版 ${badge(x)}</button>`).join("")}</div>` : "";
-    const meta = `<p class="tiny final-meta">${oc.emoji} ${oc.name}${o.relation ? ` · 給${esc(o.relation)}` : ""}${o.sender ? ` · 來自 ${esc(o.sender)}` : ""}${o.weddingDate ? ` · 💍 ${esc(o.weddingDate.replaceAll("-", "."))}` : ""}${v.provider ? ` · ${esc(PROVIDERS[v.provider]?.short || v.provider)}${v.provider === "local" ? "（純音樂）" : ""}` : ""}</p>`;
+    const meta = o.imported ? `<p class="tiny final-meta">📂 匯入的音樂${o.recipient ? ` · 給 ${esc(o.recipient)}` : ""}${o.sender ? ` · 來自 ${esc(o.sender)}` : ""}</p>` : `<p class="tiny final-meta">${oc.emoji} ${oc.name}${o.relation ? ` · 給${esc(o.relation)}` : ""}${o.sender ? ` · 來自 ${esc(o.sender)}` : ""}${o.weddingDate ? ` · 💍 ${esc(o.weddingDate.replaceAll("-", "."))}` : ""}${v.provider ? ` · ${esc(PROVIDERS[v.provider]?.short || v.provider)}${v.provider === "local" ? "（純音樂）" : ""}` : ""}</p>`;
     let body = "";
     if (RUNNING.has(v.status) && !playable.length) {
       // ── 等待頁：你的歌曲正在誕生 ──
@@ -729,7 +730,7 @@ async function renderSong(id) {
       const label = playable.length > 1 ? `完整版 ${String.fromCharCode(65 + sel)}` : "完整版";
       body = `<div class="final">
         <h1 class="final-h">${esc(v.title)}</h1>
-        <p class="final-sub">專為${esc(o.recipient)}打造的${esc(st.name)}歌曲。</p>
+        <p class="final-sub">${o.imported ? (o.recipient ? `送給 ${esc(o.recipient)} 的歌。` : "可以直接製作歌詞 MV。") : `專為${esc(o.recipient)}打造的${esc(st.name)}歌曲。`}</p>
         <div class="card player track" data-ti="${ti}">
           <div class="pl-row">
             <button class="bigplay play" aria-label="播放">▶</button>
@@ -749,7 +750,7 @@ async function renderSong(id) {
           <button class="btn btn-sm" id="mvBtn">🎬 製作 MV</button>
           <button class="btn btn-ghost btn-sm" id="card">🖼 下載歌詞卡</button>
           ${navigator.share ? `<button class="btn btn-ghost btn-sm" id="share">📤 分享</button>` : ""}
-          <button class="btn btn-ghost btn-sm" id="editVer">✏️ 修改重做</button>
+          ${o.imported ? `<button class="btn btn-ghost btn-sm" id="editLy">✏️ 修改歌詞</button>` : `<button class="btn btn-ghost btn-sm" id="editVer">✏️ 修改重做</button>`}
         </div>
         ${meta}
       </div>`;
@@ -758,7 +759,7 @@ async function renderSong(id) {
       ${body}
       ${verBar ? `<div class="center" style="margin-top:6px">${verBar}</div>` : ""}
       <div id="editPanel"></div>
-      ${!RUNNING.has(v.status) || playable.length ? `<section class="card final-lyrics"><h3>歌詞</h3><div class="lyrics-view">${lyricsHtml(v.lyrics)}</div></section>` : ""}
+      ${(!RUNNING.has(v.status) || playable.length) && String(v.lyrics || "").trim() ? `<section class="card final-lyrics"><h3>歌詞</h3><div class="lyrics-view">${lyricsHtml(v.lyrics)}</div></section>` : ""}
       <div class="row" style="justify-content:space-between;margin-top:18px">
         <a class="btn btn-ghost btn-sm" href="#/songs">← 我的歌曲</a>
         <button class="btn btn-danger btn-sm" id="del">刪除這首歌</button>
@@ -823,6 +824,21 @@ async function renderSong(id) {
     if (shareBtn) shareBtn.onclick = () => shareSong(song, v);
     const retry = $("#retryVer");
     if (retry) retry.onclick = () => newVersion(song, { title: v.title, lyrics: v.lyrics, styleTags: v.styleTags, vocal: v.vocal, length: v.length });
+    const editLy = $("#editLy");
+    if (editLy) editLy.onclick = () => {
+      const p = $("#editPanel");
+      p.innerHTML = `<div class="card" style="margin-top:12px"><h3>修改歌名與歌詞</h3>
+        <div class="q"><label for="i-title">歌名</label><input id="i-title" type="text" maxlength="80" value="${esc(v.title)}"></div>
+        <div class="q"><label for="i-ly">歌詞（一行一句；做 MV 時會依演唱時間顯示）</label><textarea id="i-ly" class="lyrics-edit" maxlength="5000">${esc(v.lyrics || "")}</textarea></div>
+        <div class="row"><button class="btn" id="i-save">儲存</button><button class="btn btn-ghost" id="i-cancel">取消</button></div></div>`;
+      p.scrollIntoView({ behavior: "smooth" });
+      $("#i-cancel").onclick = () => (p.innerHTML = "");
+      $("#i-save").onclick = async () => {
+        v.title = $("#i-title").value.trim() || v.title;
+        v.lyrics = $("#i-ly").value.trim();
+        await putSong(song); toast("已儲存"); draw();
+      };
+    };
     const edit = $("#editVer");
     if (edit) edit.onclick = () => openEdit(song, v);
     $("#del").onclick = async () => {
@@ -1033,21 +1049,96 @@ function wrapText(g, text, x, y, maxW, lh, maxLines) {
 }
 function roundRect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
 
+// ───────────────── 匯入舊音樂檔（之後可以製作 MV）─────────────────
+function renderImport() {
+  document.title = pageTitle("匯入音樂");
+  const desk = canTranscribe();
+  view.innerHTML = `<div style="max-width:680px;margin:28px auto">
+    <h2>📂 匯入音樂做 MV</h2>
+    <p class="muted">把你已經有的歌（MP3、M4A、WAV…，也可以是 MP4 影片）加進「我的歌曲」，就能用照片和歌詞製作 MV。</p>
+    <div class="card">
+      <div class="q"><span class="lbl">音樂檔</span>
+        <label class="btn btn-ghost btn-sm">選擇音樂檔<input type="file" id="i-file" accept="audio/*,video/mp4,.mp3,.m4a,.wav,.flac,.ogg,.aac,.mp4" hidden></label>
+        <p class="tiny" id="i-info">還沒選擇</p>
+        <audio id="i-prev" controls class="hidden" style="width:100%;margin-top:6px"></audio></div>
+      <div class="q"><label for="i-title">歌名</label><input id="i-title" type="text" maxlength="80" placeholder="選了檔案會自動帶入檔名"></div>
+      <div class="row" style="gap:12px">
+        <div class="q" style="flex:1"><label for="i-to">送給誰（選填）</label><input id="i-to" type="text" maxlength="30"></div>
+        <div class="q" style="flex:1"><label for="i-from">誰送的（選填）</label><input id="i-from" type="text" maxlength="30"></div>
+      </div>
+      <div class="q"><label for="i-ly">歌詞（選填，一行一句）</label>
+        <textarea id="i-ly" class="lyrics-edit" maxlength="5000" placeholder="貼上歌詞，做 MV 時會依實際演唱時間顯示每一句。沒有歌詞也可以，MV 就只有照片和音樂。"></textarea>
+        ${desk ? `<div class="row" style="margin-top:8px"><button type="button" class="btn btn-ghost btn-sm" id="i-listen" disabled>🎧 沒有歌詞？讓電腦聽寫</button><span class="tiny" id="i-lstat">先分離人聲再辨識，約 4 分鐘；聽寫結果請再檢查修改</span></div>` : `<p class="tiny">沒有歌詞的話，用電腦版可以讓電腦自動聽寫。</p>`}</div>
+      <div class="row" style="margin-top:14px"><button class="btn" id="i-go" disabled>匯入並前往製作 MV</button><a class="btn btn-ghost" href="#/songs">取消</a></div>
+    </div></div>`;
+  let file = null, dur = 0;
+  $("#i-file").onchange = async (e) => {
+    file = e.target.files[0] || null;
+    if (!file) return;
+    if (file.size > 300 * 1024 * 1024) { file = null; return toast("檔案太大（超過 300 MB）", true); }
+    const url = URL.createObjectURL(file);
+    const a = $("#i-prev"); a.src = url; a.classList.remove("hidden");
+    dur = await blobDuration(file).catch(() => 0);
+    if (!dur) { file = null; $("#i-info").textContent = "讀不到這個檔案的聲音，請換一個檔案"; $("#i-go").disabled = true; return; }
+    $("#i-info").textContent = `${file.name}（${fmtTime(dur)}，${(file.size / 1e6).toFixed(1)} MB）`;
+    if (!$("#i-title").value.trim()) $("#i-title").value = file.name.replace(/\.[^.]+$/, "").slice(0, 80);
+    $("#i-go").disabled = false;
+    const li = $("#i-listen"); if (li) li.disabled = false;
+  };
+  const li = $("#i-listen");
+  if (li) li.onclick = async () => {
+    if (!file) return;
+    li.disabled = true; $("#i-go").disabled = true;
+    $("#i-lstat").innerHTML = `<span class="spinner"></span> 分離人聲、聽寫歌詞中…（約 4 分鐘，請不要關閉）`;
+    try {
+      const ly = await transcribeByListening(file);
+      $("#i-ly").value = ly;
+      $("#i-lstat").textContent = "✅ 聽寫完成，請檢查錯字後再匯入（改過的地方做 MV 時會重新對時間）";
+    } catch (err) {
+      $("#i-lstat").textContent = "❌ " + (err.message || err);
+    }
+    li.disabled = false; $("#i-go").disabled = !file;
+  };
+  $("#i-go").onclick = async () => {
+    if (!file) return;
+    $("#i-go").disabled = true;
+    try {
+      const id = uid(), tid = "imp-0";
+      const blobKey = `${id}:${tid}`;
+      await putBlob(blobKey, file);
+      const ext = (file.name.match(/\.([a-z0-9]+)$/i)?.[1] || "mp3").toLowerCase();
+      const title = $("#i-title").value.trim() || "我的歌";
+      const song = {
+        id, createdAt: Date.now(), current: 0,
+        order: { imported: true, recipient: $("#i-to").value.trim(), sender: $("#i-from").value.trim(), style: "pop", occasion: "", relation: "" },
+        versions: [{ n: 1, status: "SUCCESS", title, lyrics: $("#i-ly").value.trim(), styleTags: "", vocal: "any", length: Math.round(dur), provider: "",
+          tracks: [{ id: tid, title, audioUrl: "", streamUrl: "", imageUrl: "", duration: dur, blobKey, ext }] }],
+      };
+      await putSong(song);
+      toast("已匯入，可以製作 MV 了");
+      location.hash = "#/song/" + id;
+    } catch (err) {
+      toast("匯入失敗：" + (err.message || err), true);
+      $("#i-go").disabled = false;
+    }
+  };
+}
+
 // ───────────────── 我的歌曲 ─────────────────
 async function renderSongs() {
   document.title = pageTitle("我的歌曲");
   const songs = await listSongs();
   const d = getDraft();
   view.innerHTML = `<div style="max-width:760px;margin:28px auto">
-    <div class="row" style="justify-content:space-between"><h2 style="margin:0">我的歌曲</h2><a class="btn btn-sm" href="#/create">＋ 新的歌</a></div>
+    <div class="row" style="justify-content:space-between"><h2 style="margin:0">我的歌曲</h2><div class="row"><a class="btn btn-ghost btn-sm" href="#/import">📂 匯入音樂做 MV</a><a class="btn btn-sm" href="#/create">＋ 新的歌</a></div></div>
     ${d && (d.recipient || d.step > 0) ? `<a class="song-item" href="#/create" style="margin-top:16px"><div class="thumb">📝</div><div><b>未完成的草稿：給${esc(d.recipient || "…")}</b><div class="tiny">停在「${STEPS[d.step]}」步驟，點此繼續</div></div></a>` : ""}
     ${songs.length ? `<div class="song-list">${songs.map((s) => {
       const v = s.versions[s.current] || s.versions[0];
       const img = v.tracks.find((t) => t.imageUrl)?.imageUrl;
       const b = v.status === "SUCCESS" ? `<span class="badge ok">完成</span>` : v.status === "FAILED" ? `<span class="badge err">失敗</span>` : `<span class="badge run">製作中</span>`;
       return `<a class="song-item" href="#/song/${s.id}"><div class="thumb">${img ? `<img src="${esc(img)}" alt="">` : styleByKey(s.order.style).emoji}</div>
-        <div style="flex:1;min-width:0"><b>${esc(v.title)}</b> ${b}<div class="tiny">給 ${esc(s.order.recipient)} · ${styleByKey(s.order.style).name} · ${s.versions.length} 個版本 · ${fmtDate(s.createdAt)}</div></div><span>›</span></a>`;
-    }).join("")}</div>` : `<div class="empty"><div style="font-size:54px">🎼</div><p>還沒有歌曲，來做第一首吧！</p><a class="btn" href="#/create">開始製作</a></div>`}
+        <div style="flex:1;min-width:0"><b>${esc(v.title)}</b> ${b}<div class="tiny">${s.order.imported ? `📂 匯入的音樂${s.order.recipient ? ` · 給 ${esc(s.order.recipient)}` : ""}` : `給 ${esc(s.order.recipient)} · ${styleByKey(s.order.style).name} · ${s.versions.length} 個版本`} · ${fmtDate(s.createdAt)}</div></div><span>›</span></a>`;
+    }).join("")}</div>` : `<div class="empty"><div style="font-size:54px">🎼</div><p>還沒有歌曲，來做第一首吧！</p><div class="row center"><a class="btn" href="#/create">開始製作</a><a class="btn btn-ghost" href="#/import">📂 匯入音樂做 MV</a></div></div>`}
   </div>`;
   const onUpd = () => renderSongs();
   window.addEventListener("sfy:song", onUpd);

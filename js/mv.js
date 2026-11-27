@@ -182,6 +182,15 @@ export async function alignByListening(blob, lyrics) {
   return null;
 }
 
+// 電腦版：沒有歌詞時，分離人聲後用 Whisper 聽寫歌詞（約 4 分鐘）
+export const canTranscribe = onDesktop;
+export async function transcribeByListening(blob) {
+  const r = await fetch("/transcribe-lyrics", { method: "POST", headers: { "X-Lyrics": "" }, body: blob });
+  const j = await r.json();
+  if (j && j.lyrics) return j.lyrics;
+  throw new Error(j && j.error === "no_whisper" ? "這台電腦沒有可用的語音辨識（faster-whisper）" : "聽不出歌詞" + (j && j.detail ? "：" + j.detail : ""));
+}
+
 // 綁定面板並負責錄製；getAudio(i) 回傳該版本音檔 Blob；save(blob, name) 存檔
 export function bindMvPanel({ $, $$, song, v, getAudio, save, toast }) {
   let fmt = "land", track = 0, photos = [], job = null, trans = "random";
@@ -308,7 +317,7 @@ export function makeMv({ song, v, blob, photos, fmt, timing, trans = "random", h
         g.globalAlpha = Math.max(0, a);
         g.fillStyle = "rgba(0,0,0,.35)"; g.fillRect(0, 0, W, H);
         g.fillStyle = b.c2; g.font = `600 ${30 * S}px 'Noto Sans TC', sans-serif`;
-        g.fillText(`專為 ${o.recipient} 打造`, W / 2, H / 2 - 70 * S);
+        if (o.recipient) g.fillText(o.imported ? `送給 ${o.recipient}` : `專為 ${o.recipient} 打造`, W / 2, H / 2 - 70 * S);
         g.fillStyle = "#fff"; g.font = `900 ${(portrait ? 64 : 72) * S}px 'Noto Serif TC', serif`;
         wrapLines(g, v.title, W * 0.86).forEach((ln, i, arr) => g.fillText(ln, W / 2, H / 2 + 20 * S + (i - (arr.length - 1) / 2) * 84 * S));
         g.globalAlpha = 1;
@@ -318,7 +327,7 @@ export function makeMv({ song, v, blob, photos, fmt, timing, trans = "random", h
         g.globalAlpha = a;
         g.fillStyle = "rgba(0,0,0,.45)"; g.fillRect(0, 0, W, H);
         g.fillStyle = "#fff"; g.font = `800 ${50 * S}px 'Noto Serif TC', serif`;
-        g.fillText(o.sender ? `${o.sender} 送給 ${o.recipient}` : `送給 ${o.recipient}`, W / 2, H / 2 - 30 * S);
+        g.fillText(o.recipient ? (o.sender ? `${o.sender} 送給 ${o.recipient}` : `送給 ${o.recipient}`) : (o.sender ? `${o.sender} 獻上` : v.title), W / 2, H / 2 - 30 * S);
         if (logo) g.drawImage(logo, W / 2 - 40 * S, H / 2 + 20 * S, 80 * S, 80 * S);
         g.fillStyle = b.c2; g.font = `600 ${28 * S}px 'Noto Sans TC', sans-serif`;
         g.fillText(b.name, W / 2, H / 2 + (logo ? 130 : 50) * S);
