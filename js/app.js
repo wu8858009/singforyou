@@ -899,10 +899,10 @@ function openEdit(song, v) {
     const title = $("#e-title").value.trim() || v.title;
     const lyrics = $("#e-lyrics").value.trim();
     if (!lyrics) return toast("歌詞不能是空的", true);
+    const length = Number($("#e-len").value) || 0; // 要在清掉面板之前讀
     song.order.style = styleKey;
-    p.innerHTML = "";
-    const length = Number($("#e-len").value) || 0;
     song.order.length = length;
+    p.innerHTML = "";
     await newVersion(song, { title, lyrics, styleTags: tags, vocal, length });
   };
 }
