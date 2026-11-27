@@ -1,5 +1,6 @@
 // 企業版 PRO：歌詞 MV 影片（照片輪播＋逐句歌詞＋音樂），在瀏覽器裡即時錄製成 MP4（不支援時為 WebM）
 import { brand, loadImage, drawWatermarkSync } from "./brand.js";
+import { vocalActivity, alignLines } from "./align.js";
 
 const FORMATS = { land: { w: 1280, h: 720, name: "橫式 16:9（YouTube）" }, port: { w: 720, h: 1280, name: "直式 9:16（IG／抖音）" } };
 
@@ -8,8 +9,8 @@ function pickMime() {
   return c.find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
 }
 
-// 依每句字數分配時間：前奏放標題，最後幾秒放結尾卡
-export function buildTimeline(lyrics, D) {
+// 歌詞時間軸：先分析音檔找出哪裡在唱歌，把每句對上去；分析不出來（單聲道等）才依字數平均分配
+export function buildTimeline(lyrics, D, buf) {
   const lines = [];
   let sec = "";
   for (const raw of String(lyrics || "").split("\n")) {
@@ -17,6 +18,18 @@ export function buildTimeline(lyrics, D) {
     const m = l.match(/^\[(.+?)\]$/);
     if (m) { sec = m[1]; continue; }
     if (l) lines.push({ text: l, sec });
+  }
+  if (buf && lines.length) {
+    try {
+      const va = vocalActivity(buf.getChannelData(0), buf.numberOfChannels > 1 ? buf.getChannelData(1) : null, buf.sampleRate);
+      const al = va.contrast > 4 ? alignLines(lines.map((x) => [...x.text].length + 3), va) : null;
+      if (al) {
+        lines.forEach((x, i) => { x.t0 = al.lines[i].t0; x.t1 = Math.min(D, al.lines[i].t1); });
+        const intro = Math.max(1.5, Math.min(al.first - 0.4, D * 0.3));
+        const outro = Math.max(lines[lines.length - 1].t1, Math.min(D - 2, al.last + 2));
+        return { lines, intro, outro, aligned: true };
+      }
+    } catch (e) { console.warn("歌詞對時失敗，改用平均分配", e); }
   }
   const intro = Math.min(10, D * 0.07), outroLen = Math.min(7, D * 0.06);
   const start = intro, end = Math.max(start + 1, D - outroLen);
@@ -27,12 +40,20 @@ export function buildTimeline(lyrics, D) {
   return { lines, intro, outro: end };
 }
 
-function coverDraw(g, im, W, H, zoom, alpha) {
-  const k = Math.max(W / im.width, H / im.height) * zoom;
-  const w = im.width * k, h = im.height * k;
+// 照片完整顯示不裁切：背後放同一張照片放大＋模糊＋變暗填滿空白
+function photoDraw(g, im, W, H, zoom, alpha) {
+  g.save();
   g.globalAlpha = alpha;
+  const kc = Math.max(W / im.width, H / im.height) * 1.1;
+  const cw = im.width * kc, ch = im.height * kc;
+  g.filter = "blur(28px) brightness(0.55)";
+  g.drawImage(im, (W - cw) / 2, (H - ch) / 2, cw, ch);
+  g.filter = "none";
+  const k = Math.min(W / im.width, H / im.height) * zoom;
+  const w = im.width * k, h = im.height * k;
+  g.shadowColor = "rgba(0,0,0,.5)"; g.shadowBlur = 30;
   g.drawImage(im, (W - w) / 2, (H - h) / 2, w, h);
-  g.globalAlpha = 1;
+  g.restore();
 }
 
 function wrapLines(g, text, maxW) {
@@ -112,7 +133,7 @@ export function makeMv({ song, v, blob, photos, fmt, hear, canvas, onProgress })
     const ac = new AudioContext();
     const buf = await ac.decodeAudioData(await blob.arrayBuffer());
     const D = buf.duration;
-    const tl = buildTimeline(v.lyrics, D);
+    const tl = buildTimeline(v.lyrics, D, buf);
     const o = song.order;
 
     const dest = ac.createMediaStreamDestination();
@@ -131,9 +152,9 @@ export function makeMv({ song, v, blob, photos, fmt, hear, canvas, onProgress })
       g.fillStyle = "#120a1d"; g.fillRect(0, 0, W, H);
       if (photos.length) {
         const per = D / photos.length, i = Math.min(photos.length - 1, Math.floor(t / per)), lt = t - i * per;
-        coverDraw(g, photos[i], W, H, 1 + 0.08 * (lt / per), 1);
+        photoDraw(g, photos[i], W, H, 0.94 + 0.05 * (lt / per), 1);
         const fade = 1.2;
-        if (i + 1 < photos.length && per - lt < fade) coverDraw(g, photos[i + 1], W, H, 1, 1 - (per - lt) / fade);
+        if (i + 1 < photos.length && per - lt < fade) photoDraw(g, photos[i + 1], W, H, 0.94, 1 - (per - lt) / fade);
       } else {
         const gr = g.createLinearGradient(0, 0, W, H);
         gr.addColorStop(0, "#1b1030"); gr.addColorStop(1, "#3a1a4d"); g.fillStyle = gr; g.fillRect(0, 0, W, H);
@@ -197,6 +218,13 @@ export function makeMv({ song, v, blob, photos, fmt, hear, canvas, onProgress })
             g.globalAlpha = 0.6 * fadeIn; g.font = `600 ${34 * S}px 'Noto Sans TC', sans-serif`; g.fillStyle = "#fff";
             g.fillText(wrapLines(g, nxt.text, W * 0.86)[0], W / 2, baseY + (lines.length / 2 + 0.9) * fs * 1.25);
           }
+          g.globalAlpha = 1;
+        } else {
+          // 間奏：顯示音符和下一句
+          const nx = tl.lines.find((x) => x.t0 > t);
+          g.globalAlpha = 0.75; g.fillStyle = "#fff"; g.font = `600 ${40 * S}px 'Noto Sans TC', sans-serif`;
+          g.fillText("♪　♪　♪", W / 2, H * (portrait ? 0.7 : 0.74));
+          if (nx && nx.t0 - t < 4) { g.globalAlpha = 0.6; g.font = `600 ${34 * S}px 'Noto Sans TC', sans-serif`; g.fillText(wrapLines(g, nx.text, W * 0.86)[0], W / 2, H * (portrait ? 0.7 : 0.74) + 70 * S); }
           g.globalAlpha = 1;
         }
         // 左上角小標題
