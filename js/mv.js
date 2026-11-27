@@ -10,7 +10,7 @@ function pickMime() {
 }
 
 // 歌詞時間軸：先分析音檔找出哪裡在唱歌，把每句對上去；分析不出來（單聲道等）才依字數平均分配
-export function buildTimeline(lyrics, D, buf) {
+export function buildTimeline(lyrics, D, buf, timing) {
   const lines = [];
   let sec = "";
   for (const raw of String(lyrics || "").split("\n")) {
@@ -18,6 +18,21 @@ export function buildTimeline(lyrics, D, buf) {
     const m = l.match(/^\[(.+?)\]$/);
     if (m) { sec = m[1]; continue; }
     if (l) lines.push({ text: l, sec });
+  }
+  // 電腦版用 Whisper 聽出來的實際演唱時間（含 AI 重複唱、跳句）
+  if (timing && timing.length && lines.length) {
+    const occ = timing.filter((x) => lines[x.i]).map((x) => ({ text: lines[x.i].text, sec: lines[x.i].sec, t0: x.t0, t1: x.t1 }));
+    occ.sort((a, b) => a.t0 - b.t0);
+    for (let i = 0; i < occ.length; i++) {
+      const nx = occ[i + 1];
+      if (nx) occ[i].t1 = nx.t0 - occ[i].t1 < 3 ? nx.t0 : occ[i].t1 + 0.6;
+      else occ[i].t1 = Math.min(D, occ[i].t1 + 1.5);
+    }
+    if (occ.length) {
+      const intro = Math.max(1.5, occ[0].t0 - 0.4);
+      const outro = Math.max(occ[occ.length - 1].t1, Math.min(D - 2, occ[occ.length - 1].t1 + 2));
+      return { lines: occ, intro, outro, aligned: "whisper" };
+    }
   }
   if (buf && lines.length) {
     try {
@@ -27,7 +42,7 @@ export function buildTimeline(lyrics, D, buf) {
         lines.forEach((x, i) => { x.t0 = al.lines[i].t0; x.t1 = Math.min(D, al.lines[i].t1); });
         const intro = Math.max(1.5, Math.min(al.first - 0.4, D * 0.3));
         const outro = Math.max(lines[lines.length - 1].t1, Math.min(D - 2, al.last + 2));
-        return { lines, intro, outro, aligned: true };
+        return { lines, intro, outro, aligned: "audio" };
       }
     } catch (e) { console.warn("歌詞對時失敗，改用平均分配", e); }
   }
@@ -70,7 +85,7 @@ export function mvPanelHtml(v, esc) {
   const nTracks = v.tracks.filter((t) => t.blobKey || t.audioUrl).length;
   return `<div class="card" style="margin-top:12px" id="mvCard">
     <h3>🎬 製作歌詞 MV 影片 <span class="badge ok">PRO</span></h3>
-    <p class="muted small">音樂＋照片輪播＋逐句歌詞，加上你的品牌${brand().wmOn ? "與浮水印" : ""}。影片會照歌曲長度即時錄製，<b>製作時請讓這個視窗保持在最前面</b>。</p>
+    <p class="muted small">音樂＋照片輪播＋逐句歌詞，加上你的品牌${brand().wmOn ? "與浮水印" : ""}。影片會照歌曲長度即時錄製，<b>製作時請讓這個視窗保持在最前面</b>。${onDesktop() ? "電腦版會先「聽」一次歌（約 1 分鐘），讓每句歌詞準確對上演唱。" : "歌詞時間由音檔自動估算；用電腦版製作會更準。"}</p>
     <div class="q"><span class="lbl">影片格式</span><div class="seg" id="mvFmt">${Object.entries(FORMATS).map(([k, f], i) => `<button type="button" data-v="${k}" class="${i ? "" : "on"}">${f.name}</button>`).join("")}</div></div>
     ${nTracks > 1 ? `<div class="q"><span class="lbl">使用版本</span><div class="seg" id="mvTrack">${Array.from({ length: nTracks }, (_, i) => `<button type="button" data-v="${i}" class="${i ? "" : "on"}">版本 ${String.fromCharCode(65 + i)}</button>`).join("")}</div></div>` : ""}
     <div class="q"><span class="lbl">照片（選填，最多 20 張，依順序輪播）</span>
@@ -84,6 +99,19 @@ export function mvPanelHtml(v, esc) {
       <p class="small muted" id="mvStat"></p>
     </div>
   </div>`;
+}
+
+// 電腦版：把音檔交給電腦版用 Whisper 聽，拿回每句歌詞實際唱的時間（約 1 分鐘）
+const onDesktop = () => location.port === "47831" || !!(window.pywebview && window.pywebview.api);
+export async function alignByListening(blob, lyrics) {
+  if (!onDesktop()) return null;
+  try {
+    const r = await fetch("/align-lyrics", { method: "POST", headers: { "X-Lyrics": encodeURIComponent(lyrics || "") }, body: blob });
+    const j = await r.json();
+    if (j && Array.isArray(j.lines) && j.lines.length) return j.lines;
+    console.warn("歌詞對時（Whisper）沒有結果", j);
+  } catch (e) { console.warn("歌詞對時（Whisper）失敗", e); }
+  return null;
 }
 
 // 綁定面板並負責錄製；getAudio(i) 回傳該版本音檔 Blob；save(blob, name) 存檔
@@ -103,7 +131,9 @@ export function bindMvPanel({ $, $$, song, v, getAudio, save, toast }) {
     try {
       const blob = await getAudio(track);
       if (!blob) throw new Error("找不到這個版本的音檔");
-      job = makeMv({ song, v, blob, photos, fmt, hear: $("#mvHear").checked, canvas: $("#mvPrev"),
+      $("#mvStat").textContent = onDesktop() ? "正在聽歌，找出每句歌詞唱的時間…（約 1 分鐘）" : "";
+      const timing = await alignByListening(blob, v.lyrics);
+      job = makeMv({ song, v, blob, photos, fmt, timing, hear: $("#mvHear").checked, canvas: $("#mvPrev"),
         onProgress: (p, t, D) => { $("#mvBar").style.width = (p * 100).toFixed(1) + "%"; $("#mvStat").textContent = `錄製中 ${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")} / ${Math.floor(D / 60)}:${String(Math.floor(D % 60)).padStart(2, "0")}（${Math.round(p * 100)}%）`; } });
       const out = await job.done;
       if (out) {
@@ -119,7 +149,7 @@ export function bindMvPanel({ $, $$, song, v, getAudio, save, toast }) {
   };
 }
 
-export function makeMv({ song, v, blob, photos, fmt, hear, canvas, onProgress }) {
+export function makeMv({ song, v, blob, photos, fmt, timing, hear, canvas, onProgress }) {
   let cancelled = false, cleanup = () => {};
   const done = (async () => {
     const { w: W, h: H } = FORMATS[fmt] || FORMATS.land;
@@ -133,7 +163,7 @@ export function makeMv({ song, v, blob, photos, fmt, hear, canvas, onProgress })
     const ac = new AudioContext();
     const buf = await ac.decodeAudioData(await blob.arrayBuffer());
     const D = buf.duration;
-    const tl = buildTimeline(v.lyrics, D, buf);
+    const tl = buildTimeline(v.lyrics, D, buf, timing);
     const o = song.order;
 
     const dest = ac.createMediaStreamDestination();
